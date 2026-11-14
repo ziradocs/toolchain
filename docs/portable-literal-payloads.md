@@ -26,7 +26,9 @@ constructed through the Go API. Blank lines, relative indentation and trailing
 spaces are preserved. In Strict, the exact whitespace prefix of the opening
 `<<math>>` plus two spaces is structural and is removed from every payload line
 that has that prefix. Shorter blank lines are retained; nonblank lines missing
-the structural prefix produce errors. Flex removes no payload whitespace.
+the structural prefix produce errors, reported on the line that is missing it.
+A literal with no closing delimiter is an error on its opening line, with its
+range up to the last nonblank line it took. Flex removes no payload whitespace.
 Opening/closing delimiter lines are structural and are excluded from payload;
 inline dollar syntax retains the literal bytes between the two `$$` delimiters.
 Angle metadata at payload column zero (`caption:` and `label:` after structural

@@ -243,18 +243,23 @@ func (p *MapParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 	currentHasLng := false
 	// markerErr registra el primer marcador sin coordenadas válidas. Antes
 	// esos marcadores salían en 0,0 (o se descartaban) sin diagnóstico.
+	// Lleva la línea del marcador (errorAtLine): el error es de esa línea, no
+	// de la del <<map>>.
 	var markerErr error
-	fail := func(err error) {
+	fail := func(err error, line int) {
 		if markerErr == nil {
-			markerErr = err
+			markerErr = errorAtLine(err, line)
 		}
 	}
+	// markerLine es la línea del "- lat" del marcador abierto: un marcador sin
+	// lng se reporta ahí.
+	markerLine := startIndex
 	finishMarker := func() {
 		if currentMarker == nil {
 			return
 		}
 		if !currentHasLng {
-			fail(fmt.Errorf("map marker at lat %v has no lng", currentMarker.Lat))
+			fail(fmt.Errorf("map marker at lat %v has no lng", currentMarker.Lat), markerLine)
 		} else {
 			mapElement.Markers = append(mapElement.Markers, *currentMarker)
 		}
@@ -283,7 +288,7 @@ parseLoop:
 		if strings.HasPrefix(trimmedLine, "marker:") {
 			marker, err := parseInlineMarker(trimmedLine)
 			if err != nil {
-				fail(err)
+				fail(err, i)
 			} else {
 				mapElement.Markers = append(mapElement.Markers, *marker)
 			}
@@ -343,15 +348,16 @@ parseLoop:
 					finishMarker()
 					lat, err := parseCoordinate("lat", value)
 					if err != nil {
-						fail(err)
+						fail(err, i)
 					}
 					currentMarker = &ast.MapMarker{Lat: lat}
+					markerLine = i
 					currentHasLng = false
 				case "lng":
 					if currentMarker != nil {
 						lng, err := parseCoordinate("lng", value)
 						if err != nil {
-							fail(err)
+							fail(err, i)
 						} else {
 							currentMarker.Lng = lng
 							currentHasLng = true

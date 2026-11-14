@@ -1011,6 +1011,12 @@ Embedded elements add rich content:
 | Quiz | `<<quiz>>` … `<<end>>` | Multiple-choice question with a correct answer — see "Quiz and Poll" below |
 | Poll | `<<poll>>` … `<<end>>` | Question without a correct answer — see "Quiz and Poll" below |
 
+A chart's type goes after a colon. `<<chart>>` and the attribute form
+`<<chart type="bar">>` are not charts: in flex the line is dropped with the
+`FLEX001` warning, as any line no element reads, and its message says how to
+write it (`<<chart: bar>>`, with the type the attribute named); the lines
+below it are read as what they are on their own.
+
 `<<plantuml>>` accepts the same `title="…"` caption; a chart's caption is its
 existing `title:` property. The only attribute either
 diagram tag accepts is `title`; anything else is an error. `<<video …>>` and
@@ -1019,7 +1025,11 @@ diagram tag accepts is `title`; anything else is an error. `<<video …>>` and
 toolchain never downloads); any other attribute is reported as warning
 `MEDIA001`, and `poster`/`caption` move the document to schema 2.18.0 with the
 inferred capability `media-figure-v1`. In chart `data`, `null` is a missing
-value kept in its column. A map marker without usable coordinates is an error.
+value kept in its column. A map marker without usable coordinates is an error,
+reported on the marker's line (the `- lat:` line of a marker with no `lng:`);
+inside a `:::` block it is the `SPECIAL003` warning, on the same line. Only the
+first such marker of a map is reported. In the fenced JSON form the error stays
+on the opening line.
 See [figures and media](../../docs/portable-figures-media.md).
 
 The fenced form (`` ```lang `` … `` ``` ``, four backticks also accepted for
@@ -1030,7 +1040,7 @@ syntax at all). For charts and maps, the fenced body must be a single JSON
 object — it is the only body shape the fence supports, unlike the native tags,
 which additionally accept a YAML-ish `key: value` property block (charts) or
 `key: value`/`marker:` lines (maps). A chart's fenced JSON becomes its raw
-Chart.js config, same as `<<chart>>` followed directly by a `{`-prefixed JSON
+Chart.js config, same as `<<chart` followed directly by a `{`-prefixed JSON
 block; a map's fenced JSON is a plain data serialization (`center`, `zoom`,
 `markers: [{position: [lat, lng], popup: "…"}, …]`, `type`, `heatmap`, `title`,
 `width`, `height`) translated into the same fields the native `<<map>>`

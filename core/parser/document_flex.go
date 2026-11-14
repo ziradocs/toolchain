@@ -367,8 +367,11 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 		result := p.registry.Parse(ctx, p.currentLine)
 		if result.Element != nil && result.ConsumedLines <= 0 {
 			// Mismo guard que en FlexParser: un elemento sin líneas
-			// consumidas no avanza el bucle y la CLI se cuelga.
+			// consumidas no avanza el bucle y la CLI se cuelga. El error y los
+			// diagnósticos del parser salen igual, como en FlexParser: el
+			// guard descarta el elemento, no lo que el parser dijo de él.
 			p.addError(zeroConsumptionMessage(result.Element, trimmed))
+			p.addElementResultDiagnostics(ctx, result, startLine)
 			p.currentLine++
 			continue
 		}
@@ -385,11 +388,7 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 					}
 				}
 			}
-			// Handle errors
-			if result.Error != nil {
-				p.addErrorAt(startLine, result.Error.Error())
-			}
-			p.diagnostics = append(p.diagnostics, result.Diagnostics...)
+			p.addElementResultDiagnostics(ctx, result, startLine)
 			continue
 		} else if result.ConsumedLines > 0 {
 			p.currentLine += result.ConsumedLines
@@ -402,11 +401,7 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 					}
 				}
 			}
-			// Handle errors
-			if result.Error != nil {
-				p.addErrorAt(startLine, result.Error.Error())
-			}
-			p.diagnostics = append(p.diagnostics, result.Diagnostics...)
+			p.addElementResultDiagnostics(ctx, result, startLine)
 			continue
 		}
 
@@ -424,11 +419,27 @@ func (p *DocumentFlexParser) parseSectionBody(block *ast.ContentBlock) {
 		// ++, a diferencia de flex.go donde había que capturar el índice).
 		if !isFlexFailsafeExempt(trimmed) {
 			p.addWarningWithRuleID(
-				fmt.Sprintf("Unrecognized line, content was discarded: %q. Check DSL Flex syntax documentation.", trimmed),
+				fmt.Sprintf("Unrecognized line, content was discarded: %q. %s", trimmed, flexFailsafeHint(trimmed)),
 				"FLEX001")
 		}
+		// Un parser que no produjo nada ni consumió líneas pero sí reportó
+		// algo (un error, un aviso) no se calla: hoy ninguno llega acá así,
+		// pero uno nuevo que lo hiciera fallaría en silencio. FlexParser ya
+		// los conserva en este mismo camino.
+		p.addElementResultDiagnostics(ctx, result, startLine)
 		p.currentLine++
 	}
+}
+
+// addElementResultDiagnostics registra el error y los diagnósticos de un
+// ElementParser: el error en la línea interna a la que apunta, si trae una
+// (elements.LineError), o en startLine, la que abre el elemento; los
+// diagnósticos tal cual, con la severidad que el parser les dio.
+func (p *DocumentFlexParser) addElementResultDiagnostics(ctx *elements.ParseContext, result *elements.ParseResult, startLine int) {
+	if result.Error != nil {
+		p.diagnostics = append(p.diagnostics, ctx.ErrorDiagnostic(result.Error, startLine, "document-flex-parser"))
+	}
+	p.diagnostics = append(p.diagnostics, result.Diagnostics...)
 }
 
 // isSubsectionHeader detecta si una línea es un header de subsección (##, ###, etc.)

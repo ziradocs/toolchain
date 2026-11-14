@@ -6,6 +6,7 @@ package linter
 import (
 	"fmt"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -47,7 +48,15 @@ type RulePolicy struct {
 	// registro de identidades contra el cual verificarlo. Se propaga al
 	// reporte para que un consumidor que sí tenga ese registro lo valide.
 	ApprovedBy string `yaml:"approved_by,omitempty" json:"approvedBy,omitempty"`
-	// Scope son globs de ruta. VACÍO significa "todo el documento".
+	// Scope son globs de ruta. VACÍO significa "todo el documento". Un glob
+	// se compara con la ruta del documento tal como se le pasó al CLI. Para
+	// suprimir (enabled: false, o un waiver vigente) se compara además con
+	// la del archivo incluido del que viene el hallazgo (Diagnostic.File),
+	// en la misma forma que la del documento: un waiver con scope
+	// ["parts/*"] apaga el hallazgo de parts/x.slidelang que llegó por un
+	// @include. Severity se aplica solo con la ruta del documento: así un
+	// scope nunca sube a error un hallazgo que antes no tocaba. Ver
+	// findingScopePath.
 	Scope []string `yaml:"scope,omitempty" json:"scope,omitempty"`
 }
 
@@ -333,19 +342,14 @@ func (p *PolicyConfig) Evaluate(diags []diagnostics.Diagnostic, filePath string,
 			continue
 		}
 
-		inScope := true
-		if len(policy.Scope) > 0 {
-			if filePath == "" {
-				inScope = false
-			} else {
-				inScope = false
-				for _, scopeGlob := range policy.Scope {
-					if matchScopeGlob(filePath, scopeGlob) {
-						inScope = true
-						break
-					}
-				}
-			}
+		// docInScope: el scope cubre el documento. inScope: cubre el
+		// documento o el archivo incluido del hallazgo. El segundo solo
+		// suprime (o avisa que un waiver venció); la severidad sigue el
+		// primero, como antes de mirar el archivo del hallazgo.
+		docInScope := scopeMatches(policy.Scope, filePath)
+		inScope := docInScope
+		if !inScope && d.File != "" {
+			inScope = scopeMatches(policy.Scope, findingScopePath(filePath, d.File))
 		}
 
 		if !inScope {
@@ -373,7 +377,7 @@ func (p *PolicyConfig) Evaluate(diags []diagnostics.Diagnostic, filePath string,
 		}
 
 		if expired {
-			if policy.Severity != "" {
+			if policy.Severity != "" && docInScope {
 				d.Severity = diagnostics.Severity(policy.Severity)
 			}
 			active = append(active, d)
@@ -402,10 +406,50 @@ func (p *PolicyConfig) Evaluate(diags []diagnostics.Diagnostic, filePath string,
 			continue
 		}
 
-		if policy.Severity != "" {
+		if policy.Severity != "" && docInScope {
 			d.Severity = diagnostics.Severity(policy.Severity)
 		}
 		active = append(active, d)
 	}
 	return active, waived
+}
+
+// scopeMatches dice si alguno de los globs de scope cubre p. Un scope vacío
+// cubre todo; uno con globs no cubre una ruta vacía (un documento sin ruta).
+func scopeMatches(scope []string, p string) bool {
+	if len(scope) == 0 {
+		return true
+	}
+	if p == "" {
+		return false
+	}
+	for _, scopeGlob := range scope {
+		if matchScopeGlob(p, scopeGlob) {
+			return true
+		}
+	}
+	return false
+}
+
+// findingScopePath es la ruta con la que el scope compara un hallazgo de un
+// archivo incluido: file (Diagnostic.File) viene relativo al directorio del
+// documento (include.SourceMap.MapDiagnostics), así que se une a ese
+// directorio y queda en la misma forma que docPath, que es con la que el
+// scope compara el documento: con docPath "decks/main.slidelang" y file
+// "parts/x.slidelang" da "decks/parts/x.slidelang". Un file absoluto (el
+// documento no tenía ruta) se compara tal cual. Es la misma unión que hace el
+// reporte SARIF con su artifactLocation.
+func findingScopePath(docPath, file string) string {
+	f := strings.ReplaceAll(file, "\\", "/")
+	doc := strings.ReplaceAll(docPath, "\\", "/")
+	if doc == "" || path.IsAbs(f) || hasWindowsDrive(f) {
+		return f
+	}
+	return path.Join(path.Dir(doc), f)
+}
+
+// hasWindowsDrive dice si p empieza con una letra de unidad ("D:/…").
+func hasWindowsDrive(p string) bool {
+	return len(p) >= 3 && p[1] == ':' && p[2] == '/' &&
+		(p[0] >= 'a' && p[0] <= 'z' || p[0] >= 'A' && p[0] <= 'Z')
 }

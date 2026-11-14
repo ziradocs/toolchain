@@ -4,6 +4,7 @@
 package elements
 
 import (
+	"errors"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -112,6 +113,67 @@ type ParseResult struct {
 	// severidad Error), estos diagnósticos conservan la severidad que el
 	// ElementParser les asigne (típicamente Warning).
 	Diagnostics []diagnostics.Diagnostic
+}
+
+// LineError es el Error de un ElementParser que es de una línea interna del
+// elemento (un marcador de <<map>> sin coordenadas, una línea de un <<math>>
+// literal sin la sangría estructural), no de la línea donde abre.
+//
+// Sin la línea, quien recibe el ParseResult no tiene otra que anclar el
+// error en la apertura del elemento, y el autor busca la falla en la línea
+// equivocada. El error sigue yendo por ParseResult.Error, no por
+// Diagnostics: cada consumidor decide su severidad (un error en el cuerpo de
+// un SLIDE o una sección, el aviso SPECIAL003 dentro de un bloque ":::") y
+// alguno corta con él (un fragmento de contenido), así que pasarlo a
+// Diagnostics le cambiaría la severidad o el AST a alguno.
+//
+// Line y End son índices en el ctx.Lines que recibió el parser; End es la
+// última línea del tramo cuando el error cubre varias (End <= Line si es
+// una sola). El texto es el de Err, sin número de línea.
+type LineError struct {
+	Err  error
+	Line int
+	End  int
+}
+
+func (e *LineError) Error() string { return e.Err.Error() }
+
+func (e *LineError) Unwrap() error { return e.Err }
+
+// errorAtLine envuelve err (si no es nil) con la línea i de ctx.Lines.
+func errorAtLine(err error, i int) error {
+	if err == nil {
+		return nil
+	}
+	return &LineError{Err: err, Line: i, End: i}
+}
+
+// ErrorLines dice a qué líneas de ctx.Lines apunta el Error de un
+// ParseResult: las de su LineError, o la línea opening (donde abre el
+// elemento) si el error no trae una. end es la última línea del tramo; vale
+// line si el error es de una sola.
+func ErrorLines(err error, opening int) (line, end int) {
+	var le *LineError
+	if errors.As(err, &le) && le.Line >= 0 {
+		if le.End > le.Line {
+			return le.Line, le.End
+		}
+		return le.Line, le.Line
+	}
+	return opening, opening
+}
+
+// ErrorDiagnostic arma el diagnóstico de severidad Error del Error de un
+// ParseResult, con la posición de la línea a la que apunta (ErrorLines) y,
+// si cubre un tramo, su EndPosition. opening es la línea (índice en
+// ctx.Lines) donde abre el elemento, para un error sin línea propia.
+func (ctx *ParseContext) ErrorDiagnostic(err error, opening int, source string) diagnostics.Diagnostic {
+	line, end := ErrorLines(err, opening)
+	d := diagnostics.NewError(err.Error(), ctx.Position(line), source)
+	if end > line {
+		d = d.WithEndPosition(ctx.Position(end))
+	}
+	return d
 }
 
 // ElementParser define la interfaz común para parsers de elementos
