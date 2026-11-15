@@ -16,7 +16,7 @@ files, built on a shared Go library.
 
 ## Quick Start
 
-Requirements: **Go 1.26.10+** (version floor for stdlib CVEs patched up to that release — see
+Requirements: **Go 1.26.11+** (version floor for stdlib CVEs patched up to that release — see
 `govulncheck.yml`). PDF generation and *offline* rendering modes require
 Chrome/Chromium (or use `--install-chromium`).
 

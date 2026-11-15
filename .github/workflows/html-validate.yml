@@ -98,7 +98,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: core/go.mod
 
       - uses: actions/setup-node@v4
         with:
@@ -109,7 +109,7 @@ jobs:
 
       - name: Usar el core del árbol de trabajo
         if: matrix.deps == 'workspace'
-        run: printf 'go 1.26.10\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
+        run: go work init ./core ./doclang ./slidelang
 
       - name: Build de la CLI slidelang
         working-directory: slidelang
@@ -150,7 +150,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: core/go.mod
 
       - uses: actions/setup-node@v4
         with:
@@ -161,7 +161,7 @@ jobs:
 
       - name: Usar el core del árbol de trabajo
         if: matrix.deps == 'workspace'
-        run: printf 'go 1.26.10\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
+        run: go work init ./core ./doclang ./slidelang
 
       - name: Build de la CLI doclang
         working-directory: doclang
@@ -214,14 +214,14 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: core/go.mod
 
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Usar el core del árbol de trabajo
-        run: printf 'go 1.26.10\n\nuse (\n\t./core\n\t./doclang\n\t./slidelang\n)\n' > go.work
+        run: go work init ./core ./doclang ./slidelang
 
       - name: Verificar fidelidad fuente↔HTML de todos los ejemplos
         run: python3 scripts/check-example-fidelity.py
