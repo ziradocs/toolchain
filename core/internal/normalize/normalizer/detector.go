@@ -6,6 +6,8 @@ package normalizer
 import (
 	"regexp"
 	"strings"
+
+	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
 
 // NormalizationPattern representa un patrón específico detectado en contenido generado por AI
@@ -132,14 +134,20 @@ func (d *Detector) detectGraphicPatterns(lines []string) []NormalizationPattern 
 	return patterns
 }
 
-// detectImagePlaceholders busca imágenes con rutas placeholder
+// detectImagePlaceholders busca imágenes con rutas placeholder. De cada línea
+// mira la primera imagen con ruta relativa: una URL, una ruta relativa al
+// protocolo o una ruta desde la raíz no es un placeholder aunque diga "image"
+// o "example" ("https://images.unsplash.com/…"), así que se salta y se mira
+// la que sigue. Cada línea suma a lo más un patrón.
 func (d *Detector) detectImagePlaceholders(lines []string) []NormalizationPattern {
 	var patterns []NormalizationPattern
 
 	for i, line := range lines {
-		matches := d.imagePattern.FindStringSubmatch(line)
-		if len(matches) > 2 {
+		for _, matches := range d.imagePattern.FindAllStringSubmatch(line, -1) {
 			imagePath := matches[2]
+			if base.IsExternalOrAbsoluteRef(imagePath) {
+				continue
+			}
 			if d.placeholderPattern.MatchString(imagePath) {
 				patterns = append(patterns, NormalizationPattern{
 					Type:        "image_placeholder",
@@ -148,6 +156,7 @@ func (d *Detector) detectImagePlaceholders(lines []string) []NormalizationPatter
 					Confidence:  0.7,
 				})
 			}
+			break
 		}
 	}
 
