@@ -13,8 +13,51 @@ func NewPathNormalizer() *PathNormalizer {
 	return &PathNormalizer{}
 }
 
-// NormalizeImagePath normaliza rutas de imágenes a la estructura assets/images/
+// IsExternalOrAbsoluteRef dice si una ruta de imagen apunta fuera del
+// proyecto o desde la raíz del servidor, y por lo tanto no es una ruta
+// placeholder que haya que llevar a assets/images/. Son tres formas:
+//
+//   - una URL con esquema (RFC 3986: letra seguida de letras, dígitos, "+",
+//     "-" o ".", y luego ":"), sin importar mayúsculas: https:, http:, data:…;
+//   - una URL relativa al protocolo, "//host/…";
+//   - una ruta absoluta desde la raíz, "/…", como las que sirve una
+//     aplicación anfitriona ("/api/assets/<id>/<id>").
+//
+// La usan ImagesRule, para no reescribirlas, y el Detector, para no contarlas
+// como placeholder.
+func IsExternalOrAbsoluteRef(path string) bool {
+	path = strings.TrimSpace(path)
+	if strings.HasPrefix(path, "/") {
+		// Cubre también "//host/…".
+		return true
+	}
+	return hasURLScheme(path)
+}
+
+// hasURLScheme dice si path empieza con un esquema de RFC 3986 seguido de ":".
+func hasURLScheme(path string) bool {
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		switch {
+		case c == ':':
+			return i > 0
+		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z':
+		case i > 0 && ('0' <= c && c <= '9' || c == '+' || c == '-' || c == '.'):
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// NormalizeImagePath normaliza rutas de imágenes a la estructura assets/images/.
+// Solo toca rutas relativas: una URL, una ruta relativa al protocolo o una
+// ruta desde la raíz quedan como están (ver IsExternalOrAbsoluteRef).
 func (pn *PathNormalizer) NormalizeImagePath(path string) string {
+	if IsExternalOrAbsoluteRef(path) {
+		return path
+	}
+
 	// Extraer el nombre del archivo
 	parts := strings.Split(path, "/")
 	filename := parts[len(parts)-1]
