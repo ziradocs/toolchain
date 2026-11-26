@@ -7,8 +7,8 @@ import "go.ziradocs.com/core/v2/diagnostics"
 
 // PadShortTableRows completa con celdas vacías cada fila de tabla de doc que
 // cubre menos columnas que el encabezado, como hace GFM, y llama a padded con
-// la tabla, el índice de la fila en Rows y cuántas columnas cubría, en orden
-// (padded puede ser nil). Rows y, cuando deriva de ellas, Cells quedan con
+// la tabla, el índice de la fila en Rows, cuántas columnas cubría y hasta
+// cuántas se completó, en orden (padded puede ser nil; ver PaddedRowFunc). Rows y, cuando deriva de ellas, Cells quedan con
 // una celda por columna, así que todo generador (HTML, PDF, DOCX, Markdown,
 // el JSON del AST) escribe la fila entera. Una fila sin celdas (la fila "|")
 // queda como está, y una tabla con tableRows no se toca: su contrato de
@@ -30,7 +30,7 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // DecodeAST, sobre el AST que entrega un filtro externo o que se lee de
 // JSON; ahí la fila queda anotada para que el linter dé TABLE010 (ver
 // TableElement.DecodePaddedRows y CarryDecodePaddedRows).
-func PadShortTableRows(doc *AST, padded func(table *TableElement, row, have int)) {
+func PadShortTableRows(doc *AST, padded PaddedRowFunc) {
 	_ = Walk(doc, func(n Node) error {
 		table, ok := n.(*TableElement)
 		if !ok || table.TableRows != nil {
@@ -61,12 +61,19 @@ func PadShortTableRows(doc *AST, padded func(table *TableElement, row, have int)
 				table.Cells[i+1] = append(table.Cells[i+1], make([]TableCell, want-have)...)
 			}
 			if padded != nil {
-				padded(table, i, have)
+				padded(table, i, have, want)
 			}
 		}
 		return nil
 	})
 }
+
+// PaddedRowFunc recibe cada fila que completa PadShortTableRows: la tabla,
+// el índice de la fila en Rows, cuántas columnas cubría (have) y hasta
+// cuántas se completó (want). want es len(Headers), salvo en una fila de
+// cells: sin spans, que se mide contra su fila de encabezado (ver
+// padShortCellsRow): ese es el ancho que tiene que decir el aviso.
+type PaddedRowFunc func(table *TableElement, row, have, want int)
 
 // padShortCellsRow completa la fila i de Cells cuando Rows ya la trae
 // completa: un bloque cells: sin spans deriva Rows de Cells con
@@ -76,7 +83,7 @@ func PadShortTableRows(doc *AST, padded func(table *TableElement, row, have int)
 // la fila más larga, y una fila con MÁS celdas que el encabezado es TABLE003,
 // no un ancho al que haya que llevar a las demás. Una fila de Cells sin
 // celdas queda como está, como la fila "|" de una tabla pipe.
-func padShortCellsRow(table *TableElement, i int, cellsFollowRows bool, padded func(table *TableElement, row, have int)) {
+func padShortCellsRow(table *TableElement, i int, cellsFollowRows bool, padded PaddedRowFunc) {
 	if !cellsFollowRows {
 		return
 	}
@@ -85,9 +92,20 @@ func padShortCellsRow(table *TableElement, i int, cellsFollowRows bool, padded f
 	if have == 0 || have >= width {
 		return
 	}
-	table.Cells[i+1] = append(table.Cells[i+1], make([]TableCell, width-have)...)
+	// Una fila toda de encabezado (una segunda fila de encabezado de cells:)
+	// se completa con celdas de encabezado, no de datos.
+	fill := TableCell{IsHeader: true}
+	for _, c := range table.Cells[i+1] {
+		if !c.IsHeader {
+			fill = TableCell{}
+			break
+		}
+	}
+	for k := have; k < width; k++ {
+		table.Cells[i+1] = append(table.Cells[i+1], fill)
+	}
 	if padded != nil {
-		padded(table, i, have)
+		padded(table, i, have, width)
 	}
 }
 
@@ -105,7 +123,7 @@ func cellsHaveSpans(cells [][]TableCell) bool {
 // padSpannedRows es PadShortTableRows para una tabla cuyas Cells traen
 // spans: mide cada fila por las columnas que cubre (sus colSpan más las
 // celdas de arriba que la alcanzan con rowSpan) y completa solo lo que falta.
-func padSpannedRows(table *TableElement, want int, padded func(table *TableElement, row, have int)) {
+func padSpannedRows(table *TableElement, want int, padded PaddedRowFunc) {
 	widths := cellRowWidths(table.Cells)
 	for i := range table.Rows {
 		r := i + 1
@@ -115,7 +133,7 @@ func padSpannedRows(table *TableElement, want int, padded func(table *TableEleme
 		}
 		table.Cells[r] = append(table.Cells[r], make([]TableCell, want-have)...)
 		if padded != nil {
-			padded(table, i, have)
+			padded(table, i, have, want)
 		}
 	}
 	headers, rows := FlattenCellsToRows(table.Cells)
@@ -190,6 +208,28 @@ func (t *TableElement) DecodePaddedRows() map[int]int {
 	return t.decodePadded
 }
 
+// DecodePaddedRowWidth es hasta cuántas columnas completó DecodeAST la fila
+// row de t (ver PaddedRowFunc), para que el aviso diga el ancho contra el que
+// se midió. Una fila sin ese dato se midió contra len(Headers).
+func (t *TableElement) DecodePaddedRowWidth(row int) int {
+	if want, ok := t.decodePaddedWidth[row]; ok {
+		return want
+	}
+	return len(t.Headers)
+}
+
+// markDecodePadded anota la fila row de t como completada por DecodeAST.
+func (t *TableElement) markDecodePadded(row, have, want int) {
+	if t.decodePadded == nil {
+		t.decodePadded = map[int]int{}
+	}
+	if t.decodePaddedWidth == nil {
+		t.decodePaddedWidth = map[int]int{}
+	}
+	t.decodePadded[row] = have
+	t.decodePaddedWidth[row] = want
+}
+
 // CarryDecodePaddedRows pasa a to las filas que DecodeAST había completado
 // en from (ver DecodePaddedRows), para que el aviso no se pierda en una
 // cadena de filtros: cada filtro recibe el AST en JSON, donde la anotación
@@ -225,10 +265,7 @@ func CarryDecodePaddedRows(from, to *AST) {
 			if _, done := t.decodePadded[row]; done {
 				continue
 			}
-			if t.decodePadded == nil {
-				t.decodePadded = map[int]int{}
-			}
-			t.decodePadded[row] = have
+			t.markDecodePadded(row, have, old.DecodePaddedRowWidth(row))
 		}
 		return nil
 	})

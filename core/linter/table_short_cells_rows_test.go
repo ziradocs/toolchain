@@ -114,6 +114,72 @@ func TestCellsRowsThatAreNotShortStayAsWritten(t *testing.T) {
 	}
 }
 
+// Con una fila más larga que el encabezado en la misma tabla, Headers llega
+// al ancho de esa fila (FlattenCellsToRows), pero la fila corta se completa
+// hasta la fila de encabezado de Cells: el aviso dice ese ancho, el mismo
+// contra el que se midió y se rellenó, en el parser y por DecodeAST.
+func TestShortCellsRowNextToALongRowNamesTheHeaderWidth(t *testing.T) {
+	src := "# Doc\n\nTABLE\n  cells:\n    - [{content: \"A\", header: true}, {content: \"B\", header: true}]\n    - [{content: \"x\"}, {content: \"y\"}, {content: \"z\"}]\n    - [{content: \"p\"}]\n"
+	doc, diags := parser.New(util.NewNoop()).ParseDocument(src, "t.doclang")
+	table := findTable(doc)
+	if table == nil {
+		t.Fatal("no table")
+		return
+	}
+	if len(table.Headers) != 3 || len(table.Cells[2]) != 2 || len(table.Cells[1]) != 3 {
+		t.Fatalf("headers %q cells %+v", table.Headers, table.Cells)
+	}
+	const msg = "has 1 cell where the header has 2"
+	var short []diagnostics.Diagnostic
+	for _, d := range diags {
+		if d.RuleID == "TABLE010" {
+			short = append(short, d)
+		}
+	}
+	if len(short) != 1 || !strings.Contains(short[0].Message, msg) {
+		t.Fatalf("want one TABLE010 that says %q, got %v", msg, short)
+	}
+
+	tbl := ast.NewTableElement(diagnostics.NewPosition(3, 1))
+	tbl.Cells = [][]ast.TableCell{{{Content: "A", IsHeader: true}, {Content: "B", IsHeader: true}}, {{Content: "x"}, {Content: "y"}, {Content: "z"}}, {{Content: "p"}}}
+	tbl.Headers, tbl.Rows = ast.FlattenCellsToRows(tbl.Cells)
+	in := ast.NewAST(diagnostics.NewPosition(1, 1))
+	in.ContentBlocks = []ast.ContentBlock{{Elements: []ast.Element{tbl}}}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := ast.DecodeAST(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findTable(decoded); len(got.Cells[2]) != 2 || got.DecodePaddedRowWidth(1) != 2 {
+		t.Fatalf("cells %+v width %d", got.Cells, got.DecodePaddedRowWidth(1))
+	}
+	var lint []diagnostics.Diagnostic
+	for _, d := range (&ElementStructureRule{}).Check(&decoded.ContentBlocks[0]) {
+		if d.RuleID == "TABLE010" {
+			lint = append(lint, d)
+		}
+	}
+	if len(lint) != 1 || !strings.Contains(lint[0].Message, msg) {
+		t.Fatalf("want one linter TABLE010 that says %q, got %v", msg, lint)
+	}
+	// Por una cadena de filtros el ancho viaja con la anotación.
+	raw, err = json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := ast.DecodeAST(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.CarryDecodePaddedRows(decoded, next)
+	if w := findTable(next).DecodePaddedRowWidth(1); w != 2 {
+		t.Fatalf("carried width %d, want 2", w)
+	}
+}
+
 // Un AST en JSON (la salida de un --filter) con una fila de Cells corta y
 // Rows ya completa, como la deja FlattenCellsToRows: DecodeAST completa Cells
 // y el linter da TABLE010.

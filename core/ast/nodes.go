@@ -815,8 +815,10 @@ type TableElement struct {
 	Label  string `json:"label,omitempty"`
 	Number int    `json:"number,omitempty"`
 
-	// decodePadded: ver DecodePaddedRows. No se serializa.
-	decodePadded map[int]int
+	// decodePadded y decodePaddedWidth: ver DecodePaddedRows y
+	// DecodePaddedRowWidth. No se serializan.
+	decodePadded      map[int]int
+	decodePaddedWidth map[int]int
 }
 
 func (t TableElement) element() {}

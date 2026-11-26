@@ -33,12 +33,12 @@ import (
 // tabla.
 func padShortTableRows(doc *ast.AST) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
-	ast.PadShortTableRows(doc, func(table *ast.TableElement, row, have int) {
+	ast.PadShortTableRows(doc, func(table *ast.TableElement, row, have, want int) {
 		pos := table.GetPosition()
 		if row < len(table.RowPositions) {
 			pos = table.RowPositions[row]
 		}
-		diags = append(diags, elements.ShortTableRowWarning(pos, have, len(table.Headers), "table-parser"))
+		diags = append(diags, elements.ShortTableRowWarning(pos, have, want, "table-parser"))
 	})
 	return diags
 }
