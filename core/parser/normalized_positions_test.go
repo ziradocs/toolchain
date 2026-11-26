@@ -5,6 +5,7 @@ package parser
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -34,6 +35,83 @@ const (
 
 func mermaidBlock(i int) string {
 	return fmt.Sprintf("Párrafo %d.\n\n```mermaid\ngraph TD\n  A%d-->B%d\n```\n", i, i, i)
+}
+
+// repeatedNoAnchors son dos mermaid y dos tablas iguales con una fila de
+// más: ninguna de sus líneas es única.
+func repeatedNoAnchors() string {
+	m := "```mermaid\n\n\ngraph TD\n\n\n```\n"
+	tbl := "| a | b |\n|---|---|\n| 1 | 2 | 3 |\n"
+	return m + "\n" + tbl + "\n" + tbl + "\n" + m + "\n"
+}
+
+// Las dos filas con una celda de más de repeatedNoAnchors dan TABLE003 en
+// su línea (13 y 17), no en las que daba el reparto en proporción (11 y 18).
+func TestParseDocument_RepeatedLinesWithoutAnchors(t *testing.T) {
+	src := "# T\n\n" + repeatedNoAnchors() + "Fin.\n"
+	requireLineCountChange(t, src, base.DialectDocuments)
+	doc, _ := New(util.NewNoop()).ParseDocument(src, "d.doclang")
+	var got []int
+	for _, d := range linter.New().Lint(doc) {
+		if d.RuleID == "TABLE003" {
+			got = append(got, d.Position.Line)
+		}
+	}
+	if fmt.Sprint(got) != "[13 17]" {
+		t.Errorf("TABLE003 on lines %v, want [13 17]", got)
+	}
+}
+
+// lcsPairs da una subsecuencia común de largo máximo: se compara con la
+// programación dinámica de siempre sobre entradas chicas al azar.
+func TestLCSPairsIsALongestCommonSubsequence(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+	alphabet := []string{"", "a", "b", "```", "|x|"}
+	gen := func() []string {
+		out := make([]string, rng.Intn(12))
+		for i := range out {
+			out[i] = alphabet[rng.Intn(len(alphabet))]
+		}
+		return out
+	}
+	for i := 0; i < 3000; i++ {
+		a, b := gen(), gen()
+		m := lineMatcher{src: a, seen: b, out: make([]int, len(b)+2)}
+		pairs, ok := m.lcsPairs(0, len(a), 0, len(b))
+		if !ok {
+			t.Fatalf("lcsPairs gave up on %q %q", a, b)
+		}
+		pa, pb := -1, -1
+		for _, p := range pairs {
+			if p.a <= pa || p.b <= pb || a[p.a] != b[p.b] {
+				t.Fatalf("%q %q: bad pairs %v", a, b, pairs)
+			}
+			pa, pb = p.a, p.b
+		}
+		if want := lcsLength(a, b); len(pairs) != want {
+			t.Fatalf("%q %q: %d pairs, want %d", a, b, len(pairs), want)
+		}
+	}
+}
+
+func lcsLength(a, b []string) int {
+	dp := make([][]int, len(a)+1)
+	for i := range dp {
+		dp[i] = make([]int, len(b)+1)
+	}
+	for i := len(a) - 1; i >= 0; i-- {
+		for j := len(b) - 1; j >= 0; j-- {
+			switch {
+			case a[i] == b[j]:
+				dp[i][j] = dp[i+1][j+1] + 1
+			case dp[i+1][j] > dp[i][j+1]:
+				dp[i][j] = dp[i+1][j]
+			default:
+				dp[i][j] = dp[i][j+1]
+			}
+		}
+	}
+	return dp[0][0]
 }
 
 func tail() string {
@@ -116,6 +194,10 @@ func TestParseDocument_PositionsSurviveNormalization(t *testing.T) {
 		// TablesRule convierte líneas separadas por tabs en una tabla y le
 		// agrega el encabezado y el separador: dos líneas más.
 		"tab-separated lines turned into a table": "# Inicio\n\nNombre\tEdad\tCiudad\nAna\t30\tLeón\nLuis\t41\tMérida\nEva\t25\tTepic\n" + tail(),
+		// Sin ninguna línea única entre el primer y el último renglón: el
+		// mismo mermaid dos veces y la misma tabla dos veces. El mapa se
+		// arma con la subsecuencia común más larga, no en proporción.
+		"no unique line, repeated mermaid and tables": "# Inicio\n\n" + repeatedNoAnchors() + tail(),
 		// Un mermaid cuyo cuerpo empieza y termina con líneas en blanco, que
 		// MermaidRule también quita.
 		"mermaid with blank lines inside": "# Inicio\n\n```mermaid\n\n\ngraph TD\n  A-->B\n\n\n```\n" + tail(),
