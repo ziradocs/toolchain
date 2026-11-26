@@ -78,7 +78,10 @@ so today the CLI flag is the only way to control TOC generation per build.
 
 Format caveats worth knowing up front: **DOCX** now honours `--toc`, `--numbering` and
 `--page-breaks` (previously it emitted a TOC unconditionally and ignored the other two), but
-does not yet emit clickable hyperlinks, bookmarks or cell shading. **Markdown** is partial —
+does not yet emit cell shading. A link with a scheme (`https:`, `mailto:`) is a Word hyperlink,
+and a link to `#anchor` is an internal hyperlink to the bookmark of the heading whose HTML id is
+`anchor` (the id derived from its title, or a strict `SECTION`'s `id:`). A relative link, or an
+`#anchor` with no such heading, stays link-styled text. **Markdown** is partial —
 it skips PlantUML, maps and code groups, and emits charts as a placeholder fence.
 
 ### Themes

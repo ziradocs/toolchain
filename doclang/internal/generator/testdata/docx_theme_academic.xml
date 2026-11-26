@@ -401,14 +401,17 @@
         </w:rPr>
         <w:t xml:space="preserve"> y </w:t>
       </w:r>
-      <w:r>
-        <w:rPr>
-          <w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"></w:rFonts>
-          <w:color w:val="0066CC"></w:color>
-          <w:u w:val="single"></w:u>
-        </w:rPr>
-        <w:t>enlace</w:t>
-      </w:r>
+      <w:hyperlink r:id="rId6">
+        <w:r>
+          <w:rPr>
+            <w:rStyle w:val="Hyperlink"></w:rStyle>
+            <w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"></w:rFonts>
+            <w:color w:val="0066CC"></w:color>
+            <w:u w:val="single"></w:u>
+          </w:rPr>
+          <w:t>enlace</w:t>
+        </w:r>
+      </w:hyperlink>
       <w:r>
         <w:rPr>
           <w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"></w:rFonts>

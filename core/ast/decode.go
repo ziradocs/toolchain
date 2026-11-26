@@ -200,6 +200,15 @@ func DecodeAST(data []byte) (*AST, error) {
 	if err := ValidateTableContract(&doc); err != nil {
 		return nil, fmt.Errorf("decoding AST: %w", err)
 	}
+	// Una fila con menos celdas que el encabezado (un filtro que recortó una,
+	// un AST escrito a mano) llega completa a los generadores, como la que
+	// lee el parser; el linter la avisa con TABLE010.
+	PadShortTableRows(&doc, func(table *TableElement, row, have int) {
+		if table.decodePadded == nil {
+			table.decodePadded = map[int]int{}
+		}
+		table.decodePadded[row] = have
+	})
 	return &doc, nil
 }
 

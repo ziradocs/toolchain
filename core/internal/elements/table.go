@@ -1362,6 +1362,28 @@ func (p *TableParser) readMarkdownTable(ctx *ParseContext, startIndex int, recov
 	return t
 }
 
+// TableShortRowRuleID es el aviso de una fila de tabla con menos celdas que
+// el encabezado. Es warning en todos los dialectos: la fila se completa con
+// celdas vacías, como hace GFM (ver parser.padShortTableRows), en vez de
+// llegar corta al linter. Una fila con más celdas que el encabezado sigue
+// siendo TABLE003, un error.
+const TableShortRowRuleID = "TABLE010"
+
+// ShortTableRowWarning es el aviso TABLE010 para una fila de have celdas en
+// una tabla cuyo encabezado tiene want, en la posición pos de la fila. source
+// es quien la avisa: "table-parser" cuando el parser la completó, "linter"
+// cuando la completó ast.DecodeAST (la salida de un --filter, un AST en
+// JSON).
+func ShortTableRowWarning(pos diagnostics.Position, have, want int, source string) diagnostics.Diagnostic {
+	cells := "cells"
+	if have == 1 {
+		cells = "cell"
+	}
+	return diagnostics.NewWarning(
+		fmt.Sprintf("Table row has %d %s where the header has %d, so the missing cells are left empty. Give it one cell per header column; an empty cell is written | |", have, cells, want),
+		pos, source).WithRuleID(TableShortRowRuleID)
+}
+
 // TableRowsRuleID es el aviso de un `rows:` en línea que no se pudo leer como
 // filas (issue #488). Es warning en todos los dialectos: las filas se pierden
 // igual que antes, pero ahora con aviso.

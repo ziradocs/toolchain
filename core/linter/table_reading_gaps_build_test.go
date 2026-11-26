@@ -313,13 +313,13 @@ func buildDifferential(t *testing.T, docs []genDoc, path, name string) {
 	t.Logf("%d of %d documents failed on the base; %d of them build now", len(failedOnBase), len(docs), fixed)
 }
 
-// Una tabla con una fila de otro número de celdas dentro de una columna
-// tipada de un grid da TABLE009, un aviso: TABLE003 no revisaba esas tablas,
+// Una tabla con una fila de más celdas que el encabezado dentro de una
+// columna tipada de un grid da TABLE009, un aviso: TABLE003 no revisaba esas tablas,
 // y darles ese error haría fallar documentos que compilaban. Fuera de la
 // columna, la misma tabla sigue siendo TABLE003. Un TABLE003 subido o apagado
 // por la política no toca TABLE009.
 func TestTable009InTypedGridColumn(t *testing.T) {
-	table := "| A | B |\n|---|---|\n| 1 |\n"
+	table := "| A | B |\n|---|---|\n| 1 | 2 | 3 |\n"
 	for _, tc := range []struct {
 		name     string
 		src      string
@@ -327,7 +327,7 @@ func TestTable009InTypedGridColumn(t *testing.T) {
 	}{
 		{"doclang strict", "---\nmode: strict\ntitle: \"T\"\n---\n\nSECTION \"S\"\n  <<grid>>\n  <<column typed>>\n" + indentLines(table, 4) + "  <<end>>\n", true},
 		{"slidelang strict", "---\nmode: strict\ntitle: \"T\"\n---\n\nSLIDE content\n  title: \"T\"\n  <<grid>>\n  <<column typed>>\n" + indentLines(table, 4) + "  <<end>>\n", false},
-		{"TABLE block", "---\nmode: strict\ntitle: \"T\"\n---\n\nSECTION \"S\"\n  <<grid>>\n  <<column typed>>\n    TABLE\n      headers: [\"A\", \"B\"]\n      rows:\n        [\"1\"]\n  <<end>>\n", true},
+		{"TABLE block", "---\nmode: strict\ntitle: \"T\"\n---\n\nSECTION \"S\"\n  <<grid>>\n  <<column typed>>\n    TABLE\n      headers: [\"A\", \"B\"]\n      rows:\n        [\"1\", \"2\", \"3\"]\n  <<end>>\n", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if errs := buildErrors(tc.src, tc.document); len(errs) > 0 {

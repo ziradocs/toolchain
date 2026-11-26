@@ -79,6 +79,11 @@ type DOCXGenerator struct {
 	renderLine int
 	// unavailable junta lo que quedó como marcador (docx_unavailable.go).
 	unavailable unavailableCollector
+	// anchorLinks son los runs de links internos (#ancla) y headingAnchors
+	// las anclas de los encabezados escritos, para resolveAnchorLinks (ver
+	// docx_hyperlinks.go).
+	anchorLinks    []docxAnchorLink
+	headingAnchors []docxHeadingAnchor
 }
 
 // runCtx es el contexto de la generación en curso, o Background fuera de
@@ -193,6 +198,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	g.ctx = opts.runContext()
 	g.opts = opts
 	g.unavailable = unavailableCollector{}
+	g.anchorLinks, g.headingAnchors = nil, nil
 	g.logger.Info("DOCX", "Building DOCX document...")
 	// Listas nativas (docx_lists.go): un numbering.xml por documento.
 	g.numbering = &docxNumbering{}
@@ -360,6 +366,10 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 		}
 	}
 
+	// Los links internos apuntan al marcador de su encabezado, que docxgo
+	// asigna al guardar (ver docx_hyperlinks.go).
+	g.resolveAnchorLinks(doc)
+
 	// Guardar documento
 	if err := doc.SaveAs(outputFile); err != nil {
 		return fmt.Errorf("failed to save DOCX: %w", err)
@@ -446,7 +456,9 @@ func docxTOCTitle(lang string) string {
 type docxTitlePlan struct {
 	hoistedBlock int
 	headingText  string
-	omitTitle    bool
+	// headingAnchor es el ancla de ese encabezado (ver renderSection).
+	headingAnchor string
+	omitTitle     bool
 }
 
 func planDOCXTitle(astDoc *ast.AST, numbering bool) docxTitlePlan {
@@ -481,6 +493,7 @@ func planDOCXTitle(astDoc *ast.AST, numbering bool) docxTitlePlan {
 		}
 		plan.hoistedBlock = i
 		plan.headingText = sectionHeadingText(title, num)
+		plan.headingAnchor = renderer.DeriveAnchor(title)
 		return plan
 	}
 	return plan
@@ -517,7 +530,7 @@ func (g *DOCXGenerator) renderFrontMatter(doc domain.Document, fm *ast.FrontMatt
 	// Título principal
 	switch {
 	case plan.hoistedBlock >= 0:
-		if err := g.renderSectionHeading(doc, plan.headingText); err != nil {
+		if err := g.renderSectionHeading(doc, plan.headingText, plan.headingAnchor); err != nil {
 			return err
 		}
 	case plan.omitTitle:
@@ -1293,11 +1306,13 @@ func sectionHeadingText(title string, num int) string {
 
 // renderSectionHeading escribe el encabezado de una sección como Heading1
 // nativo de Word: es lo que lee el panel de navegación y el campo TOC.
-func (g *DOCXGenerator) renderSectionHeading(doc domain.Document, text string) error {
+// anchor es su id en el HTML, el destino de un link #anchor.
+func (g *DOCXGenerator) renderSectionHeading(doc domain.Document, text, anchor string) error {
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
 	}
+	g.recordHeadingAnchor(p, anchor)
 
 	_ = p.SetStyle(domain.StyleIDHeading1)
 	if err := p.SetSpacingBefore(g.parseTwips(g.style.H1SpaceBefore)); err != nil {
@@ -1334,7 +1349,8 @@ func (g *DOCXGenerator) renderSectionHeading(doc domain.Document, text string) e
 func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int, last bool) error {
 	// Título de la sección (H1)
 	if title != "" {
-		if err := g.renderSectionHeading(doc, sectionHeadingText(title, num)); err != nil {
+		// El ancla es la del HTML: el título sin el número de sección.
+		if err := g.renderSectionHeading(doc, sectionHeadingText(title, num), renderer.DeriveAnchor(title)); err != nil {
 			return err
 		}
 	}
@@ -1487,38 +1503,39 @@ func (g *DOCXGenerator) renderText(doc domain.Document, elem *ast.TextElement) e
 		} else if m := markdownHeadingPattern.FindStringSubmatch(content); m != nil {
 			text = m[1]
 		}
-		return g.renderHeadingWithImageAlts(doc, text, elem.Level, g.headingImageAlts(elem, text))
+		return g.renderHeadingWithImageAlts(doc, text, elem.Level, g.headingImageAlts(elem, text), headingAnchorFor(content, text))
 	}
 
 	// Detectar headings HTML (del FlexParser, para un AST sin Level)
 	if h2HTMLMatch := regexp.MustCompile(`^<h2[^>]*>(.+?)</h2>`).FindStringSubmatch(content); h2HTMLMatch != nil {
-		return g.renderHeading(doc, h2HTMLMatch[1], 2)
+		return g.renderHeading(doc, h2HTMLMatch[1], 2, headingAnchorFor(content, h2HTMLMatch[1]))
 	}
 	if h3HTMLMatch := regexp.MustCompile(`^<h3[^>]*>(.+?)</h3>`).FindStringSubmatch(content); h3HTMLMatch != nil {
-		return g.renderHeading(doc, h3HTMLMatch[1], 3)
+		return g.renderHeading(doc, h3HTMLMatch[1], 3, headingAnchorFor(content, h3HTMLMatch[1]))
 	}
 	if h4HTMLMatch := regexp.MustCompile(`^<h4[^>]*>(.+?)</h4>`).FindStringSubmatch(content); h4HTMLMatch != nil {
-		return g.renderHeading(doc, h4HTMLMatch[1], 4)
+		return g.renderHeading(doc, h4HTMLMatch[1], 4, headingAnchorFor(content, h4HTMLMatch[1]))
 	}
 
 	// Detectar headings Markdown (##)
 	if h2Match := regexp.MustCompile(`^## (.+)`).FindStringSubmatch(content); h2Match != nil {
-		return g.renderHeading(doc, h2Match[1], 2)
+		return g.renderHeading(doc, h2Match[1], 2, headingAnchorFor(content, h2Match[1]))
 	}
 	if h3Match := regexp.MustCompile(`^### (.+)`).FindStringSubmatch(content); h3Match != nil {
-		return g.renderHeading(doc, h3Match[1], 3)
+		return g.renderHeading(doc, h3Match[1], 3, headingAnchorFor(content, h3Match[1]))
 	}
 	if h4Match := regexp.MustCompile(`^#### (.+)`).FindStringSubmatch(content); h4Match != nil {
-		return g.renderHeading(doc, h4Match[1], 4)
+		return g.renderHeading(doc, h4Match[1], 4, headingAnchorFor(content, h4Match[1]))
 	}
 
 	// Párrafo normal
 	return g.renderParagraph(doc, content)
 }
 
-// renderHeading renderiza un encabezado H2/H3/H4
-func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level int) error {
-	return g.renderHeadingWithImageAlts(doc, text, level, nil)
+// renderHeading renderiza un encabezado H2/H3/H4; anchor es su id en el
+// HTML.
+func (g *DOCXGenerator) renderHeading(doc domain.Document, text string, level int, anchor string) error {
+	return g.renderHeadingWithImageAlts(doc, text, level, nil, anchor)
 }
 
 // headingImageAlts son los alt de las imágenes del encabezado elem tal como
@@ -1564,11 +1581,12 @@ var docxHeadingImgTag = regexp.MustCompile(`<img\b[^>]*>`)
 
 // renderHeadingWithImageAlts es renderHeading con los alt que el HTML da a
 // las imágenes del encabezado (headingImageAlts), o nil sin ellos.
-func (g *DOCXGenerator) renderHeadingWithImageAlts(doc domain.Document, text string, level int, imageAlts []string) error {
+func (g *DOCXGenerator) renderHeadingWithImageAlts(doc domain.Document, text string, level int, imageAlts []string, anchor string) error {
 	p, err := doc.AddParagraph()
 	if err != nil {
 		return err
 	}
+	g.recordHeadingAnchor(p, anchor)
 
 	var styleID string
 	var size, color string
@@ -2338,10 +2356,11 @@ func docxBlockImagePath(source string) string {
 	return source
 }
 
-// docxApplyLink escribe la etiqueta de un link. DOCX no emite hipervínculo
-// (docxgo no lo soporta), así que un link se marca con color y subrayado.
-// La etiqueta puede llevar imágenes ([![alt](img)](url)), que salen como su
-// alt con el mismo estilo que el resto de la etiqueta.
+// docxApplyLink escribe la etiqueta de un link con color y subrayado, y cada
+// run de la etiqueta como hipervínculo de Word a dest (ver
+// docx_hyperlinks.go). La etiqueta puede llevar imágenes
+// ([![alt](img)](url)), que salen como su alt con el mismo estilo que el
+// resto de la etiqueta.
 //
 // Un destino que el renderer HTML descarta sale como texto plano: en HTML esa
 // etiqueta tampoco es un link, y subrayarla en el .docx haría pasar por enlace
@@ -2358,7 +2377,7 @@ func (g *DOCXGenerator) docxApplyLink(p domain.Paragraph, text string, dest stri
 			_ = r.SetColor(g.parseColor(g.style.LinkColor))
 			// Links con subrayado (usar UnderlineNone + 1 = single)
 			_ = r.SetUnderline(domain.UnderlineStyle(1))
-			// TODO: Agregar hyperlink real cuando docxgo lo soporte
+			g.linkRun(r, dest)
 		}
 		if postRun != nil {
 			return postRun(r)

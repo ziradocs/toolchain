@@ -43,6 +43,11 @@ type DocumentFlexParser struct {
 	// computa sobre el contenido ORIGINAL, siempre gana (issue #245, ver
 	// TestDocumentParsers_ExplicitOffsetWinsOverOwnStrip).
 	lineOffsetExplicit bool
+
+	// positionSource, si no es nil, es el texto de antes de normalizar: al
+	// terminar, Parse lleva las posiciones del AST y de los diagnósticos de
+	// las líneas que leyó a las de ese texto (ver normalized_lines.go).
+	positionSource *string
 }
 
 // position traduce un índice 0-based dentro de p.lines a una posición
@@ -115,6 +120,7 @@ func NewDocumentFlexParserWithNormalization(input string, log util.Logger) *Docu
 	// frontmatter es el mismo en los dos lados y evita reparsearlo dos veces
 	// (#245).
 	input = normalizeDocumentStart(input) // ver Parser.ParseDocument
+	original := input
 	_, bodyOffset := peekDocument(input)
 
 	// Detectar si el contenido parece ser generado por IA
@@ -155,6 +161,9 @@ func NewDocumentFlexParserWithNormalization(input string, log util.Logger) *Docu
 	// Crear el parser con el contenido normalizado
 	parser := newDocumentFlexParserAt(input, bodyOffset, log)
 	parser.normalized = wasModified
+	if wasModified {
+		parser.positionSource = &original
+	}
 
 	return parser
 }
@@ -171,6 +180,7 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		p.listStart = ast.SourceDeclaresCapability(astNode.FrontMatter, ast.ListStartCapability)
 		p.mathSource = ast.SourceDeclaresCapability(astNode.FrontMatter, ast.MathSourceCapability)
 	}
+	body := p.lines
 
 	// Parse document sections (content blocks in AST terms)
 	for p.currentLine < len(p.lines) {
@@ -190,6 +200,11 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		astNode.ContentBlocks[0].BlockType = "title"
 	}
 
+	if p.positionSource != nil {
+		restoreNormalizedPositions(astNode, p.diagnostics, *p.positionSource, seenLines(*p.positionSource, p.lineOffset, body))
+	}
+
+	p.diagnostics = append(p.diagnostics, padShortTableRows(astNode)...)
 	return astNode, p.diagnostics
 }
 

@@ -44,7 +44,7 @@ go build -o doclang ./cmd/doclang
 | slidelang | `pptx`     | MVP (text, bullets, tables and images only; other elements skipped) |
 | doclang   | `html`     | Supported (default)                                              |
 | doclang   | `pdf`      | Supported (via Chromium)                                         |
-| doclang   | `docx`     | Supported with caveats (no clickable hyperlinks/bookmarks/shading yet) |
+| doclang   | `docx`     | Supported with caveats (links are Word hyperlinks; no shading yet) |
 | doclang   | `markdown` | Partial (skips PlantUML/Map/CodeGroup/Math; charts as a placeholder) |
 
 ## Try it in the browser (Playground)

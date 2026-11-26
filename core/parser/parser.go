@@ -155,6 +155,11 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 		bodyParser.nestedListTypes = nestedListTypes
 		bodyParser.listStart = ast.SourceDeclaresCapability(sourceFM, ast.ListStartCapability)
 		bodyParser.mathSource = ast.SourceDeclaresCapability(sourceFM, ast.MathSourceCapability)
+		if processedContent != content {
+			// Las posiciones vuelven a las líneas de content, no a las del
+			// texto normalizado (ver normalized_lines.go).
+			bodyParser.positionSource = &content
+		}
 		astNode, bodyDiagnostics = bodyParser.Parse()
 	}
 
@@ -326,6 +331,9 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	// FASE 3: Determinar modo y parsear cuerpo
 	var astNode *ast.AST
 	var bodyDiagnostics []diagnostics.Diagnostic
+	// seenBody son las líneas de cuerpo que leyó el parser flex, normalizadas
+	// o no; nil en strict, que lee el cuerpo tal cual.
+	var seenBody []string
 
 	switch frontMatter.Mode {
 	case "strict":
@@ -353,6 +361,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		flexParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		flexParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
 		flexParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
+		seenBody = flexParser.lines
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -375,6 +384,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		flexParser.nestedListTypes = sourceNestedListTypes(frontMatter)
 		flexParser.listStart = ast.SourceDeclaresCapability(frontMatter, ast.ListStartCapability)
 		flexParser.mathSource = ast.SourceDeclaresCapability(frontMatter, ast.MathSourceCapability)
+		seenBody = flexParser.lines
 		astNode, bodyDiagnostics = flexParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -388,6 +398,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 		if strings.Join(autoParser.lines, "\n") != bodyContent {
 			normalizationModified = true
 		}
+		seenBody = autoParser.lines
 		astNode, bodyDiagnostics = autoParser.Parse()
 		astNode.FrontMatter = frontMatter
 		astNode.FilePath = filePath
@@ -408,6 +419,7 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 			if strings.Join(autoParser.lines, "\n") != bodyContent {
 				normalizationModified = true
 			}
+			seenBody = autoParser.lines
 			astNode, bodyDiagnostics = autoParser.Parse()
 			astNode.FrontMatter = frontMatter
 			astNode.FilePath = filePath
@@ -417,6 +429,13 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 					diagnostics.NewPosition(1, 1), "parser"))
 			return nil, allDiagnostics
 		}
+	}
+
+	if seenBody != nil {
+		// El normalizador puede haber cambiado el número de líneas del
+		// cuerpo: las posiciones vuelven a las de content (ver
+		// normalized_lines.go).
+		restoreNormalizedPositions(astNode, bodyDiagnostics, content, seenLines(content, bodyOffset, seenBody))
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
