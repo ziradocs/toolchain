@@ -287,9 +287,10 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 				if pos, bad := tableRowColumnMismatch(elem); bad {
 					diags = append(diags,
 						diagnostics.NewError(
-							"Table row has incorrect number of columns",
+							"Table row has incorrect number of columns: it has more cells than the header",
 							pos, "linter").WithRuleID("TABLE003"))
 				}
+				diags = append(diags, shortTableRows(elem)...)
 
 			case *ast.GridElement:
 				// Una tabla dentro de una columna tipada de un grid no
@@ -309,6 +310,7 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 									"Table row in a grid column has incorrect number of columns: give it one cell per header column. Outside a grid column this is the TABLE003 error",
 									pos, "linter").WithRuleID("TABLE009"))
 						}
+						diags = append(diags, shortTableRows(table)...)
 					}
 				}
 
@@ -375,28 +377,48 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 }
 
 // tableRowColumnMismatch devuelve la posición de la primera fila de la tabla
-// con otro número de celdas que el encabezado. Una tabla sin encabezado no
-// se revisa, y una fila sin celdas ("|" sola) es una fila separadora visual:
-// no tiene celdas que no cuadren.
+// con MÁS celdas que el encabezado. Una tabla sin encabezado no se revisa, y
+// una fila sin celdas ("|" sola) es una fila separadora visual: no tiene
+// celdas que no cuadren. Una fila con menos celdas no cuenta: es TABLE010
+// (ver shortTableRows).
 func tableRowColumnMismatch(elem *ast.TableElement) (diagnostics.Position, bool) {
 	if len(elem.Headers) == 0 {
 		return diagnostics.Position{}, false
 	}
 	expectedCols := len(elem.Headers)
 	for i, row := range elem.Rows {
-		if len(row) != 0 && len(row) != expectedCols {
-			// RowPositions es paralelo a Rows por índice, pero puede venir
-			// más corto (la forma "cells:" no lo puebla, ver
-			// TableElement.RowPositions): cae al inicio de la tabla en vez de
-			// asumir que el índice existe (F10, audit 2026-09-11).
-			pos := elem.GetPosition()
-			if i < len(elem.RowPositions) {
-				pos = elem.RowPositions[i]
-			}
-			return pos, true
+		if len(row) > expectedCols {
+			return tableRowPosition(elem, i), true
 		}
 	}
 	return diagnostics.Position{}, false
+}
+
+// shortTableRows es el aviso TABLE010 de cada fila con menos celdas que el
+// encabezado. El parser ya completa esas filas con celdas vacías y da el
+// aviso él mismo (parser.padShortTableRows), así que esto solo encuentra
+// filas cortas en un AST que no pasó por el parser: el de un --filter o uno
+// leído de JSON. Antes eran TABLE003, un error.
+func shortTableRows(elem *ast.TableElement) []diagnostics.Diagnostic {
+	var diags []diagnostics.Diagnostic
+	want := len(elem.Headers)
+	for i, row := range elem.Rows {
+		if len(row) != 0 && len(row) < want {
+			diags = append(diags, elements.ShortTableRowWarning(tableRowPosition(elem, i), len(row), want, "linter"))
+		}
+	}
+	return diags
+}
+
+// tableRowPosition es la posición de la fila i. RowPositions es paralelo a
+// Rows por índice, pero puede venir más corto (la forma "cells:" no lo
+// puebla, ver TableElement.RowPositions): cae al inicio de la tabla en vez de
+// asumir que el índice existe (F10, audit 2026-09-11).
+func tableRowPosition(elem *ast.TableElement, i int) diagnostics.Position {
+	if i < len(elem.RowPositions) {
+		return elem.RowPositions[i]
+	}
+	return elem.GetPosition()
 }
 
 // knownChartTypes es el vocabulario de tipos que el pipeline sabe dibujar:

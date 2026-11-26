@@ -145,7 +145,7 @@ six spaces in or more. A row that v2.58.0 did not read (at another indentation, 
 row that cut the block) is read only when it fits the table: one cell per
 header, no cells, or a table without headers. Otherwise it is skipped with a
 `TABLE008` warning that quotes it, as before, so that no document that built
-stops building (a row with the wrong number of cells is `TABLE003`, an
+stops building (a row with more cells than the header is `TABLE003`, an
 error). A row indented differently from the first row of its block is
 skipped with `TABLE008`. In a typed grid column the rows are measured after
 the column's own indentation is removed.
@@ -349,7 +349,7 @@ A row with other text and dashes in a cell (`| 2019 | --- |`,
 `| a --- b | c |`) is not a separator. Where it used to be taken for one (any
 row in flex and a `:::` block, the line right after the header in strict), it
 is now a data row **only when it fits the table**, so that no document that
-built stops building (a row with the wrong number of cells is `TABLE003`, an
+built stops building (a row with more cells than the header is `TABLE003`, an
 error):
 
 - As a data row, it needs one cell per column of the header.
@@ -373,6 +373,26 @@ row does not count for `TABLE003`: it has no cells that could fail to match.
 inside a typed grid column (`<<column typed>>`) was not checked; making it
 `TABLE003` would stop documents that build. There the same check is the
 `TABLE009` warning, which a `lint_policy:` raises or turns off by its own ID.
+
+A row with fewer cells than the header is completed with empty cells, as in
+GFM, with a `TABLE010` warning on the line of the row. This holds for every
+table the parser reads: a pipe table in either dialect of either language, a
+`TABLE` with `headers:` and `rows:`, and a table inside a typed grid column or
+a `:::` block. The AST, and so HTML, PDF, DOCX and Markdown, carry the row with
+one cell per header column; a row with no cells (`|`) stays empty. Which lines
+a table reads (the separator row, the `TABLE008` and `TABLE007` cases above)
+is still decided with the cells the author wrote, before the row is
+completed. A row with more cells than the header is still `TABLE003`, an error
+(`TABLE009` inside a typed grid column): GFM drops the extra cells, and that
+would lose text without a word. The linter gives `TABLE010` too for a short
+row in an AST that did not come from the parser (a `--filter`, an AST read
+from JSON).
+
+**This is a behavior change.** Up to v2.59.1 a short row was `TABLE003`, so
+one short row stopped the whole document from building; it now builds, with
+a warning. A `lint_policy:` that raised, lowered or turned off `TABLE003`, or
+`TABLE009` in a typed grid column, no longer reaches a short row: name
+`TABLE010` (`severity: error` restores the old failure).
 
 **This is a behavior change.** Flex and a `:::` block used to skip every line
 with `---`, `:--`, `--:` or `:-:` in it as a separator, so the cells of

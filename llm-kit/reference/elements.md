@@ -289,10 +289,11 @@ Markdown pipe syntax works in both modes:
 
 - Needs headers (`TABLE001` — warning if missing) and at least one row
   (`TABLE002` — warning if empty).
-- **Every row must have the same number of columns as the header row**
-  (`TABLE003` — error, not warning, if a row's column count doesn't match).
-  Inside a typed grid column (`<<column typed>>`) the same check is
-  `TABLE009`, a warning; fix it the same way.
+- **Every row should have the same number of columns as the header row.**
+  A row with more cells is `TABLE003` — an error, not a warning (inside a
+  typed grid column, `<<column typed>>`, it is `TABLE009`, a warning; fix it
+  the same way). A row with fewer cells is completed with empty cells, as in
+  GFM, with a `TABLE010` warning: write the empty cells (`| a | |`) anyway.
 - In a pipe table the separator row goes right after the header:
   `|---|---|`, `|:--|--:|`, `|--|--|` (two dashes or more per cell) or
   `--- | ---` without the leading `|`, with one cell per column. Any row of

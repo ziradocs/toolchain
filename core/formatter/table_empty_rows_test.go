@@ -561,6 +561,9 @@ func roundTripGeneratedTables(t *testing.T, d tableDialect, shapes []tableShape)
 			if !ok {
 				continue
 			}
+			// Una fila con menos celdas que el encabezado se lee completa con
+			// celdas vacías (TABLE010, ver parser.padShortTableRows).
+			wantRows = padShortRows(wantHeaders, wantRows)
 			src := d.wrap(table)
 			doc, diags := d.parse(src)
 			if e, bad := hasErrorDiag(diags); bad {
@@ -807,8 +810,8 @@ func TestFormat_TableArraysFormRefusesUnquotableCells(t *testing.T) {
 	}
 }
 
-// Con encabezado, una fila de otro largo y una comilla doble se escriben en
-// TABLE con filas "|", como las escribió el autor (main rellenaba la fila).
+// Con encabezado, una fila corta y una comilla doble: el parser completa la
+// fila con una celda vacía (TABLE010), y fmt conserva esa tabla y la comilla.
 func TestFormat_CaptionedRaggedTableWithQuote(t *testing.T) {
 	const table = "TABLE\n  caption: \"Ventas\"\n  | Producto | Nota |\n  |---|---|\n  | Café \"premium\" |\n  | Té | ok |"
 	for _, d := range tableDialects {
@@ -825,8 +828,10 @@ func TestFormat_CaptionedRaggedTableWithQuote(t *testing.T) {
 			if !reflect.DeepEqual(stripPositions(doc.ContentBlocks), stripPositions(doc2.ContentBlocks)) {
 				t.Errorf("the AST changed through fmt\n%s", out)
 			}
-			if !strings.Contains(out, "| Café \"premium\" |\n") {
-				t.Errorf("fmt did not keep the row as written:\n%s", out)
+			// La fila corta llega completa con una celda vacía (TABLE010),
+			// así que la tabla ya no es irregular cuando fmt la escribe.
+			if got := firstTable(doc2).Rows[0]; !reflect.DeepEqual(got, []string{"Café \"premium\"", ""}) {
+				t.Errorf("the short row reads back as %q, want it padded with an empty cell:\n%s", got, out)
 			}
 		})
 	}
@@ -894,7 +899,7 @@ func TestFormat_TableWithTABLE003KeepsTheMiscountedRow(t *testing.T) {
 		}
 		for name, table := range map[string]string{
 			"caption":           "TABLE\n  caption: \"Ventas\"\n  headers: [\"A\", \"B\"]\n  rows:\n%[1]s[\"1\", \"2\", \"3\"]\n%[1]s[\"4\", \"5\"]",
-			"label":             "TABLE\n  label: \"tbl:a\"\n  headers: [\"A\", \"B\"]\n  rows:\n%[1]s[\"4\", \"5\"]\n%[1]s[\"6\"]",
+			"label":             "TABLE\n  label: \"tbl:a\"\n  headers: [\"A\", \"B\"]\n  rows:\n%[1]s[\"4\", \"5\"]\n%[1]s[\"6\", \"7\", \"8\"]",
 			"row without cells": "TABLE\n  headers: [\"A\"]\n  rows:\n%[1]s[]\n%[1]s[\"1\", \"2\"]",
 		} {
 			t.Run(d.name+"/"+name, func(t *testing.T) {
@@ -996,4 +1001,22 @@ func TestFormat_CalloutNestedIndentation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// padShortRows completa con "" las filas de rows con menos celdas que
+// headers (y alguna), como las lee el parser.
+func padShortRows(headers []string, rows [][]string) [][]string {
+	out := make([][]string, len(rows))
+	for i, row := range rows {
+		out[i] = row
+		if len(row) > 0 && len(row) < len(headers) {
+			padded := make([]string, len(headers))
+			copy(padded, row)
+			out[i] = padded
+		}
+	}
+	if rows == nil {
+		return nil
+	}
+	return out
 }

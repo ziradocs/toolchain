@@ -120,13 +120,14 @@ func TestTableDashRowsKeepBuilding(t *testing.T) {
 }
 
 // Una fila sin celdas no cuenta para TABLE003: no tiene celdas que no
-// cuadren. Flex ya la dejaba en el AST, y en origin/main daba TABLE003.
+// cuadren. Flex ya la dejaba en el AST, y en origin/main daba TABLE003. Una
+// fila con más celdas que el encabezado después de ella sí lo da.
 func TestTable003IgnoresEmptyRow(t *testing.T) {
 	src := "---\nmode: flex\ntitle: \"T\"\n---\n\n# Doc\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n|\n| 3 | 4 |\n"
 	if errs := buildErrors(src, true); len(errs) > 0 {
 		t.Fatalf("build errors: %v", errs)
 	}
-	src = "---\nmode: flex\ntitle: \"T\"\n---\n\n# Doc\n\n| A | B |\n| --- | --- |\n|\n| 3 |\n"
+	src = "---\nmode: flex\ntitle: \"T\"\n---\n\n# Doc\n\n| A | B |\n| --- | --- |\n|\n| 3 | 4 | 5 |\n"
 	if errs := buildErrors(src, true); len(errs) != 1 || !strings.HasPrefix(errs[0], "TABLE003") {
 		t.Fatalf("a row with a wrong number of cells after an empty row: %v", errs)
 	}

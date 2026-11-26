@@ -114,9 +114,10 @@ func TestMarkdownTableDashOnlyRowBelowTheSeparator(t *testing.T) {
 
 // Una fila de solo guiones a media tabla que no cabe se salta, como antes en
 // flex y en ":::", pero ahora con un TABLE008 que la nombra. En el cuerpo
-// strict y en la columna tipada es una fila de datos, como siempre (con su
-// TABLE003): cambiarla a saltada cambiaría el AST de un documento con
-// TABLE003 apagado por la política.
+// strict y en la columna tipada es una fila de datos, como siempre, ahora
+// completa con una celda vacía y con TABLE010 (antes TABLE003): cambiarla a
+// saltada cambiaría el AST de un documento con TABLE003 apagado por la
+// política.
 func TestMarkdownTableDashOnlyRowThatDoesNotFit(t *testing.T) {
 	lines := []string{"| A | B |", "|---|---|", "| 1 | 2 |", "| --- |", "| 3 | 4 |"}
 	for _, c := range sepContexts() {
@@ -128,7 +129,8 @@ func TestMarkdownTableDashOnlyRowThatDoesNotFit(t *testing.T) {
 			}
 			rows := tables[0].Rows
 			if c.pipeless || strings.Contains(c.name, "typed column") {
-				if want := [][]string{{"1", "2"}, {"---"}, {"3", "4"}}; !reflect.DeepEqual(rows, want) {
+				// La fila corta queda completa con una celda vacía (TABLE010).
+				if want := [][]string{{"1", "2"}, {"---", ""}, {"3", "4"}}; !reflect.DeepEqual(rows, want) {
 					t.Fatalf("rows %q, want %q\n%s", rows, want, src)
 				}
 				return
@@ -149,7 +151,8 @@ func TestMarkdownTableDashOnlyRowThatDoesNotFit(t *testing.T) {
 // Un separador de guiones cortos ("|--|--|", GFM acepta uno o más guiones por
 // celda) justo después del encabezado y con una celda por columna es el
 // separador en los dos dialectos; antes era la primera fila de datos. En
-// cualquier otra fila, o con otro número de celdas, sigue siendo de datos, y
+// cualquier otra fila, o con otro número de celdas, sigue siendo de datos
+// (una fila corta, completa con celdas vacías), y
 // una celda de un solo guion ("| - | - |") también: un "-" suele marcar una
 // celda vacía.
 func TestMarkdownTableShortDashSeparator(t *testing.T) {
@@ -162,7 +165,7 @@ func TestMarkdownTableShortDashSeparator(t *testing.T) {
 		{"spaced", []string{"| A | B |", "| -- | -- |", "| 1 | 2 |"}, wantTable{headers: []string{"A", "B"}, rows: [][]string{{"1", "2"}}}},
 		{"aligned", []string{"| A | B | C |", "|:--|--:|:--:|", "| 1 | 2 | 3 |"}, wantTable{headers: []string{"A", "B", "C"}, rows: [][]string{{"1", "2", "3"}}, align: []string{"left", "right", "center"}}},
 		{"one dash stays data", []string{"| A | B |", "| - | - |", "| 1 | 2 |"}, wantTable{headers: []string{"A", "B"}, rows: [][]string{{"-", "-"}, {"1", "2"}}}},
-		{"another number of cells stays data", []string{"| A | B |", "|--|", "| 1 | 2 |"}, wantTable{headers: []string{"A", "B"}, rows: [][]string{{"--"}, {"1", "2"}}}},
+		{"another number of cells stays data", []string{"| A | B |", "|--|", "| 1 | 2 |"}, wantTable{headers: []string{"A", "B"}, rows: [][]string{{"--", ""}, {"1", "2"}}}},
 		{"below the separator stays data", []string{"| A | B |", "|---|---|", "|--|--|", "| 1 | 2 |"}, wantTable{headers: []string{"A", "B"}, rows: [][]string{{"--", "--"}, {"1", "2"}}}},
 	} {
 		for _, c := range sepContexts() {
