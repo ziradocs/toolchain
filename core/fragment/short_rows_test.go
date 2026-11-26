@@ -19,7 +19,9 @@ import (
 // fragmento de contenido, como en Parse y ParseDocument (TABLE010, aviso).
 // En v2.60.0 el codec rechazaba el fragmento: ParseMarkdownContent dejaba
 // la fila corta y el formatter, que relee cada forma de tabla con un parser
-// que sí completa, no encontraba ninguna que se releyera igual.
+// que sí completa, no encontraba ninguna que se releyera igual (con un
+// colspan corto en cells: lo rechazaba la relectura strict del codec). Una
+// fila corta de cells: sin spans pasaba, pero salía corta en Cells.
 
 var shortRowWant = [][]string{{"x", "y", "z"}, {"p", "q", ""}}
 
@@ -27,24 +29,29 @@ func TestContentFragmentPadsShortTableRows(t *testing.T) {
 	cases := []struct {
 		name     string
 		markdown string
-		line     int // línea de la fila corta en el Markdown original
+		line     int // línea de la fila corta en el Markdown original (columna 1)
+		// written es la línea, sin la sangría, con la que la fuente escrita
+		// lleva la fila que era corta.
+		written string
 		// rawBody: el formatter escribe el cuerpo de un ::: tal como está
 		// (también en `fmt` de un archivo completo), así que la fila sale
 		// corta en la fuente y se vuelve a completar al releerla.
 		rawBody bool
 		rows    [][]string // filas esperadas; nil es shortRowWant
 	}{
-		{name: "pipe", markdown: "| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n| p | q |\n", line: 4},
-		{name: "pipe con alineación", markdown: "| A | B | C |\n| :-- | :-: | --: |\n| x | y | z |\n| p | q |\n", line: 4},
-		{name: "TABLE con filas |", markdown: "TABLE\n  | A | B | C |\n  | x | y | z |\n  | p | q |\n", line: 4},
-		{name: "TABLE con caption y filas |", markdown: "TABLE\n  caption: \"Cap\"\n  | A | B | C |\n  | x | y | z |\n  | p | q |\n", line: 5},
-		{name: "headers y rows", markdown: "TABLE\n  headers: [\"A\", \"B\", \"C\"]\n  rows:\n      [\"x\", \"y\", \"z\"]\n      [\"p\", \"q\"]\n", line: 5},
+		{name: "pipe", markdown: "| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n| p | q |\n", line: 4, written: "| p | q |  |"},
+		{name: "pipe con alineación", markdown: "| A | B | C |\n| :-- | :-: | --: |\n| x | y | z |\n| p | q |\n", line: 4, written: "| p | q |  |"},
+		{name: "TABLE con filas |", markdown: "TABLE\n  | A | B | C |\n  | x | y | z |\n  | p | q |\n", line: 4, written: "| p | q |  |"},
+		{name: "TABLE con caption y filas |", markdown: "TABLE\n  caption: \"Cap\"\n  | A | B | C |\n  | x | y | z |\n  | p | q |\n", line: 5, written: `- [{content: p}, {content: q}, {content: ""}]`},
+		{name: "headers y rows", markdown: "TABLE\n  headers: [\"A\", \"B\", \"C\"]\n  rows:\n      [\"x\", \"y\", \"z\"]\n      [\"p\", \"q\"]\n", line: 5, written: "| p | q |  |"},
+		// cells: no lleva la posición de cada fila: el aviso va en la línea
+		// del TABLE, como en un archivo completo.
+		{name: "cells sin spans", markdown: "TABLE\n  cells:\n    - [{content: \"A\", header: true}, {content: \"B\", header: true}, {content: \"C\", header: true}]\n    - [{content: \"x\"}, {content: \"y\"}, {content: \"z\"}]\n    - [{content: \"p\"}, {content: \"q\"}]\n", line: 1, written: `- [{content: p}, {content: q}, {content: ""}]`},
 		// Una fila de cells: que cubre menos columnas por sus spans: se le
-		// agrega solo la que falta. El aviso va en la línea del TABLE, como
-		// en un archivo completo (cells: no lleva la posición de cada fila).
-		{name: "cells con colspan", markdown: "TABLE\n  cells:\n    - [{content: \"A\", header: true}, {content: \"B\", header: true}, {content: \"C\", header: true}]\n    - [{content: \"x\"}, {content: \"y\"}, {content: \"z\"}]\n    - [{content: \"p\", colspan: 2}]\n", line: 1, rows: [][]string{{"x", "y", "z"}, {"p", "p", ""}}},
-		{name: "columna tipada de grid", markdown: "::: grid\n::: column typed\n| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n| p | q |\n:::\n::: column\nOther\n:::\n", line: 6},
-		{name: "bloque :::", markdown: "::: note\n| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n| p | q |\n:::\n", line: 5, rawBody: true},
+		// agrega solo la que falta.
+		{name: "cells con colspan", markdown: "TABLE\n  cells:\n    - [{content: \"A\", header: true}, {content: \"B\", header: true}, {content: \"C\", header: true}]\n    - [{content: \"x\"}, {content: \"y\"}, {content: \"z\"}]\n    - [{content: \"p\", colspan: 2}]\n", line: 1, written: `- [{content: p, colspan: 2}, {content: ""}]`, rows: [][]string{{"x", "y", "z"}, {"p", "p", ""}}},
+		{name: "columna tipada de grid", markdown: "::: grid\n::: column typed\n| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n| p | q |\n:::\n::: column\nOther\n:::\n", line: 6, written: "| p | q |  |"},
+		{name: "bloque :::", markdown: "::: note\n| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n| p | q |\n:::\n", line: 5, written: "| p | q |", rawBody: true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -53,8 +60,11 @@ func TestContentFragmentPadsShortTableRows(t *testing.T) {
 				t.Fatalf("fragment rejected: %+v", r.Receipt.Diagnostics)
 			}
 			warnings := shortRowDiagnostics(r.Receipt.Diagnostics)
-			if len(warnings) != 1 || warnings[0].Severity != diagnostics.Warning || warnings[0].Position.Line != c.line {
-				t.Fatalf("want one TABLE010 warning on line %d, got %+v", c.line, r.Receipt.Diagnostics)
+			if len(warnings) != 1 || warnings[0].Severity != diagnostics.Warning || warnings[0].Position != diagnostics.NewPosition(c.line, 1) {
+				t.Fatalf("want one TABLE010 warning at %d:1, got %+v", c.line, r.Receipt.Diagnostics)
+			}
+			if !hasLine(r.Source, c.written) {
+				t.Fatalf("written fragment has no line %q:\n%s", c.written, r.Source)
 			}
 			for _, d := range r.Receipt.Diagnostics {
 				if d.IsError() {
@@ -94,11 +104,30 @@ func TestContentFragmentPadsShortTableRows(t *testing.T) {
 			if again := shortRowDiagnostics(diags); len(again) != 0 {
 				t.Fatalf("written fragment still has a short row: %+v\n%s", again, r.Source)
 			}
-			if strings.Contains(r.Source, "| p | q |\n") || strings.Contains(r.Source, `["p", "q"]`) {
-				t.Fatalf("written fragment keeps the short row:\n%s", r.Source)
-			}
 		})
 	}
+}
+
+// Una tabla sin filas cortas sale sin TABLE010 y con la misma fuente que
+// antes de completar filas en los fragmentos.
+func TestContentFragmentFullTableUnchanged(t *testing.T) {
+	r := NormalizeMarkdownContent("| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n| p | q | r |\n", parser.ContentOptions{AnchorNamespace: "short-rows"})
+	if !r.Receipt.Accepted || len(r.Receipt.Diagnostics) != 0 {
+		t.Fatalf("accepted=%v diagnostics=%+v", r.Receipt.Accepted, r.Receipt.Diagnostics)
+	}
+	want := "  <!-- node-id: e1fa8dd99be952c45d4d38751e6 -->\n  | A | B | C |\n  |---|---|---|\n  | x | y | z |\n  | p | q | r |\n"
+	if r.Source != want {
+		t.Fatalf("source changed:\n%q\nwant\n%q", r.Source, want)
+	}
+}
+
+func hasLine(source, line string) bool {
+	for _, l := range strings.Split(source, "\n") {
+		if strings.TrimSpace(l) == line {
+			return true
+		}
+	}
+	return false
 }
 
 // La API de dos pasos que documenta docs/content-markdown-fragments.md
@@ -106,8 +135,8 @@ func TestContentFragmentPadsShortTableRows(t *testing.T) {
 // codec, sin pasar por NormalizeMarkdownContent.
 func TestParseMarkdownContentPadsShortRowsForFormatter(t *testing.T) {
 	nodes, diags := parser.ParseMarkdownContent("| A | B | C |\n| --- | --- | --- |\n| x | y | z |\n| p | q |\n", parser.ContentOptions{AnchorNamespace: "short-rows-api"})
-	if w := shortRowDiagnostics(diags); len(diags) != 1 || len(w) != 1 || w[0].Position.Line != 4 {
-		t.Fatalf("want only TABLE010 on line 4, got %+v", diags)
+	if w := shortRowDiagnostics(diags); len(diags) != 1 || len(w) != 1 || w[0].Position != diagnostics.NewPosition(4, 1) {
+		t.Fatalf("want only TABLE010 at 4:1, got %+v", diags)
 	}
 	if got := onlyTable(t, nodes).Rows; !reflect.DeepEqual(got, shortRowWant) {
 		t.Fatalf("rows=%q, want %q", got, shortRowWant)

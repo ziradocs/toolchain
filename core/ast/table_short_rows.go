@@ -20,7 +20,10 @@ import "go.ziradocs.com/core/v2/diagnostics"
 // tiene: [{M, colSpan: 3}] en una tabla de tres columnas está completa, y no
 // se le agrega nada ni se avisa. A una que cubre menos se le agregan solo las
 // columnas que faltan, y Rows se vuelve a derivar de Cells
-// (FlattenCellsToRows), como en una tabla de celdas explícitas.
+// (FlattenCellsToRows), como en una tabla de celdas explícitas. Una fila de
+// un bloque cells: sin spans que tiene menos celdas que el encabezado ya
+// llega completa en Rows (FlattenCellsToRows rellena el rectángulo): se
+// completa en Cells y se avisa igual (ver padShortCellsRow).
 //
 // La corren los dos caminos por los que un AST llega a los generadores: los
 // parsers, sobre lo que leyeron (y avisan cada fila con TABLE010), y
@@ -44,7 +47,11 @@ func PadShortTableRows(doc *AST, padded func(table *TableElement, row, have int)
 		cellsFollowRows := want > 0 && len(table.Cells) == len(table.Rows)+1
 		for i, row := range table.Rows {
 			have := len(row)
-			if have == 0 || have >= want {
+			if have == 0 {
+				continue
+			}
+			if have >= want {
+				padShortCellsRow(table, i, cellsFollowRows, padded)
 				continue
 			}
 			full := make([]string, want)
@@ -59,6 +66,29 @@ func PadShortTableRows(doc *AST, padded func(table *TableElement, row, have int)
 		}
 		return nil
 	})
+}
+
+// padShortCellsRow completa la fila i de Cells cuando Rows ya la trae
+// completa: un bloque cells: sin spans deriva Rows de Cells con
+// FlattenCellsToRows, que deja Rows rectangular, así que la fila corta solo
+// se ve en Cells. Se completa hasta el ancho de la fila de encabezado de
+// Cells, no hasta el de Headers: FlattenCellsToRows lleva Headers al ancho de
+// la fila más larga, y una fila con MÁS celdas que el encabezado es TABLE003,
+// no un ancho al que haya que llevar a las demás. Una fila de Cells sin
+// celdas queda como está, como la fila "|" de una tabla pipe.
+func padShortCellsRow(table *TableElement, i int, cellsFollowRows bool, padded func(table *TableElement, row, have int)) {
+	if !cellsFollowRows {
+		return
+	}
+	width := len(table.Cells[0])
+	have := len(table.Cells[i+1])
+	if have == 0 || have >= width {
+		return
+	}
+	table.Cells[i+1] = append(table.Cells[i+1], make([]TableCell, width-have)...)
+	if padded != nil {
+		padded(table, i, have)
+	}
 }
 
 func cellsHaveSpans(cells [][]TableCell) bool {
