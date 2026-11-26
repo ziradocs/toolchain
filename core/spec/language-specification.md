@@ -378,7 +378,9 @@ A row with fewer cells than the header is completed with empty cells, as in
 GFM, with a `TABLE010` warning on the line of the row. This holds for every
 table the parser reads: a pipe table in either dialect of either language, a
 `TABLE` with `headers:` and `rows:`, and a table inside a typed grid column or
-a `:::` block. The AST, and so HTML, PDF, DOCX and Markdown, carry the row with
+a `:::` block, also in a Markdown content fragment (`parser.ParseMarkdownContent`,
+`slidelang fmt --content-fragment`; in v2.60.0 the fragment was rejected
+instead). The AST, and so HTML, PDF, DOCX and Markdown, carry the row with
 one cell per header column; a row with no cells (`|`) stays empty. Which lines
 a table reads (the separator row, the `TABLE008` and `TABLE007` cases above)
 is still decided with the cells the author wrote, before the row is

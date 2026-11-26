@@ -145,6 +145,12 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 			return nil, diags
 		}
 	}
+	// Una fila con menos celdas que el encabezado se completa con celdas
+	// vacías y avisa TABLE010, como en Parse y ParseDocument (ver
+	// padShortTableRows). Sin esto el fragmento llegaba corto al formatter,
+	// que relee cada forma de tabla con un parser que sí completa, y lo
+	// rechazaba porque ninguna se releía igual.
+	diags = append(diags, padShortTableRows(contentDocument(nodes))...)
 	// A generated anchor is deliberately namespaced. Local links may retain
 	// only targets whose explicit/generated authority is actually resolvable;
 	// never silently keep a broken pre-namespace auto-anchor destination.
@@ -160,14 +166,23 @@ func ParseMarkdownContent(markdown string, options ContentOptions) ([]ast.Elemen
 	return nodes, diags
 }
 
-// Navigation authority comes only from the existing renderer's actual HTML
-// fields. Literal chart/MATH/metric values are never parsed as Markdown here.
-func contentReferences(nodes []ast.Element) ([]string, error) {
+// contentDocument envuelve los elementos de un fragmento en un AST de un solo
+// bloque, para recorrerlos con lo que trabaja sobre un *ast.AST. Los
+// elementos son los mismos (punteros), así que lo que se cambie ahí se ve en
+// nodes.
+func contentDocument(nodes []ast.Element) *ast.AST {
 	doc := ast.NewAST(diagnostics.NewPosition(1, 1))
 	block := ast.NewContentBlock(diagnostics.NewPosition(1, 1), "content")
 	block.Elements = nodes
 	doc.ContentBlocks = []ast.ContentBlock{*block}
 	doc.FrontMatter = &ast.FrontMatterNode{Mode: "strict", ASTCapabilities: []string{ast.TypedHeadingsCapability, ast.ContentMarkdownCapability}}
+	return doc
+}
+
+// Navigation authority comes only from the existing renderer's actual HTML
+// fields. Literal chart/MATH/metric values are never parsed as Markdown here.
+func contentReferences(nodes []ast.Element) ([]string, error) {
+	doc := contentDocument(nodes)
 	ast.SetTableContract(doc)
 	encoded, err := json.Marshal(doc)
 	if err != nil {
