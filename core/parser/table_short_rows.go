@@ -23,6 +23,8 @@ import (
 // La corre cada parser de cuerpo al terminar (FlexParser, StrictParser,
 // DocumentFlexParser, DocumentStrictParser), así que también las entradas
 // públicas NewFlexParser, NewStrictParser y NewDocument*Parser completan.
+// ParseMarkdownContent, que lee un fragmento con el registry sin abrir un
+// parser de cuerpo, la corre sobre sus elementos al terminar.
 // Es idempotente: una segunda pasada no encuentra filas cortas. Corre sobre
 // el AST ya leído, después de las decisiones del lector de tablas (qué
 // línea es el separador, qué filas entran, cuáles se descartan con
@@ -31,12 +33,12 @@ import (
 // tabla.
 func padShortTableRows(doc *ast.AST) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
-	ast.PadShortTableRows(doc, func(table *ast.TableElement, row, have int) {
+	ast.PadShortTableRows(doc, func(table *ast.TableElement, row, have, want int) {
 		pos := table.GetPosition()
 		if row < len(table.RowPositions) {
 			pos = table.RowPositions[row]
 		}
-		diags = append(diags, elements.ShortTableRowWarning(pos, have, len(table.Headers), "table-parser"))
+		diags = append(diags, elements.ShortTableRowWarning(pos, have, want, "table-parser"))
 	})
 	return diags
 }

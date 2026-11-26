@@ -43,6 +43,27 @@ trim is applied by this API. A form that cannot survive exactly is rejected and
 is not counted as supported. Nested structures that the ordinary strict codec
 cannot represent are likewise rejected; this API does not add a private parser.
 
+A table row with fewer cells than the header is completed with empty cells and
+reported as a `TABLE010` warning in the receipt diagnostics, as in an ordinary
+build, so the written source carries the full row (`| p | q |  |`, or a
+`cells:` row ending in `{content: ""}`) and reads back without `TABLE010`. A
+`cells:` row is measured by the columns its spans cover, and its warning is on
+the line of the `TABLE`. The exception is a table inside a `:::` block, whose
+body the strict formatter writes as is, in a fragment and in `fmt` of a whole
+file alike: there the row stays short in the source and is completed again
+when it is read. A warning never rejects a fragment.
+
+In v2.60.0 a short row rejected the whole fragment: with a formatter error
+(`does not read back unchanged in any table form`, or for a column alignment
+`has column alignment, and the pipe table that would carry it does not read
+back unchanged`), or, for a `cells:` row short by its `colspan`, with `strict
+fragment cannot preserve the original parsed payload and identities`. A short
+`cells:` row without spans was accepted but stayed short in `cells`.
+
+A row with more cells than the header is kept as written; in a pipe table or
+under `rows:` the linter reports it as `TABLE003` when the assembled document is
+built.
+
 The sole extra admonition profile is an explicit `> [!WARNING]` marker followed
 by one nonempty quoted body line. It produces native warning with the literal
 body retained. Multi-line/empty warnings reject; warnings are never inferred

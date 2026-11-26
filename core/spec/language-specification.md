@@ -377,8 +377,16 @@ inside a typed grid column (`<<column typed>>`) was not checked; making it
 A row with fewer cells than the header is completed with empty cells, as in
 GFM, with a `TABLE010` warning on the line of the row. This holds for every
 table the parser reads: a pipe table in either dialect of either language, a
-`TABLE` with `headers:` and `rows:`, and a table inside a typed grid column or
-a `:::` block. The AST, and so HTML, PDF, DOCX and Markdown, carry the row with
+`TABLE` with `headers:` and `rows:`, a `TABLE` with `cells:`, and a table inside
+a typed grid column or a `:::` block, also in a Markdown content fragment
+(`parser.ParseMarkdownContent`, `slidelang fmt --content-fragment`). A row of
+`cells:` covers the columns of its cells' `colspan` plus those that a `rowspan`
+from a row above brings down to it; a row that covers the header that way is
+not short and is left alone. `cells:` does not record the line of each row, so
+its `TABLE010` is on the line of the `TABLE`. In v2.60.0 a short `cells:` row
+without spans was completed only in `rows`, with no warning, and `cells` (what
+the HTML writes) kept it short; and a content fragment with any other short
+row was rejected. The AST, and so HTML, PDF, DOCX and Markdown, carry the row with
 one cell per header column; a row with no cells (`|`) stays empty. Which lines
 a table reads (the separator row, the `TABLE008` and `TABLE007` cases above)
 is still decided with the cells the author wrote, before the row is

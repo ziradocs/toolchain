@@ -410,7 +410,7 @@ func shortTableRows(elem *ast.TableElement) []diagnostics.Diagnostic {
 	padded := elem.DecodePaddedRows()
 	for i := range elem.Rows {
 		if have, ok := padded[i]; ok {
-			diags = append(diags, elements.ShortTableRowWarning(tableRowPosition(elem, i), have, len(elem.Headers), "linter"))
+			diags = append(diags, elements.ShortTableRowWarning(tableRowPosition(elem, i), have, elem.DecodePaddedRowWidth(i), "linter"))
 		}
 	}
 	return diags
