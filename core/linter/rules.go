@@ -284,11 +284,13 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 							"TABLE element should have at least one row",
 							elem.GetPosition(), "linter").WithRuleID("TABLE002"))
 				} // Validar que todas las filas tengan el mismo número de columnas
-				if pos, bad := tableRowColumnMismatch(elem); bad {
+				if pos, more, bad := tableRowColumnMismatch(elem); bad {
+					msg := "Table row has incorrect number of columns: it has more cells than the header"
+					if !more {
+						msg = "Table row has incorrect number of columns: it has fewer cells than the header, and this AST did not come from the parser or from ast.DecodeAST, which complete such a row"
+					}
 					diags = append(diags,
-						diagnostics.NewError(
-							"Table row has incorrect number of columns: it has more cells than the header",
-							pos, "linter").WithRuleID("TABLE003"))
+						diagnostics.NewError(msg, pos, "linter").WithRuleID("TABLE003"))
 				}
 				diags = append(diags, shortTableRows(elem)...)
 
@@ -304,7 +306,7 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 						if !ok {
 							continue
 						}
-						if pos, bad := tableRowColumnMismatch(table); bad {
+						if pos, _, bad := tableRowColumnMismatch(table); bad {
 							diags = append(diags,
 								diagnostics.NewWarning(
 									"Table row in a grid column has incorrect number of columns: give it one cell per header column. Outside a grid column this is the TABLE003 error",
@@ -377,34 +379,38 @@ func (r *ElementStructureRule) Check(node ast.Node) []diagnostics.Diagnostic {
 }
 
 // tableRowColumnMismatch devuelve la posición de la primera fila de la tabla
-// con MÁS celdas que el encabezado. Una tabla sin encabezado no se revisa, y
-// una fila sin celdas ("|" sola) es una fila separadora visual: no tiene
-// celdas que no cuadren. Una fila con menos celdas no cuenta: es TABLE010
-// (ver shortTableRows).
-func tableRowColumnMismatch(elem *ast.TableElement) (diagnostics.Position, bool) {
+// con otro número de celdas que el encabezado, y si tiene más (more) o
+// menos. Una tabla sin encabezado no se revisa, y una fila sin celdas ("|"
+// sola) es una fila separadora visual: no tiene celdas que no cuadren.
+//
+// Una fila con menos celdas ya no llega acá por los caminos del CLI: el
+// parser y ast.DecodeAST (la salida de un --filter, un AST en JSON) la
+// completan con celdas vacías, y esa fila es TABLE010 (shortTableRows). Solo
+// un AST armado en Go que no pasó por ninguno de los dos trae una fila corta,
+// y esa fila sale corta en los generadores: por eso sigue siendo TABLE003.
+func tableRowColumnMismatch(elem *ast.TableElement) (pos diagnostics.Position, more, bad bool) {
 	if len(elem.Headers) == 0 {
-		return diagnostics.Position{}, false
+		return diagnostics.Position{}, false, false
 	}
 	expectedCols := len(elem.Headers)
 	for i, row := range elem.Rows {
-		if len(row) > expectedCols {
-			return tableRowPosition(elem, i), true
+		if len(row) != 0 && len(row) != expectedCols {
+			return tableRowPosition(elem, i), len(row) > expectedCols, true
 		}
 	}
-	return diagnostics.Position{}, false
+	return diagnostics.Position{}, false, false
 }
 
-// shortTableRows es el aviso TABLE010 de cada fila con menos celdas que el
-// encabezado. El parser ya completa esas filas con celdas vacías y da el
-// aviso él mismo (parser.padShortTableRows), así que esto solo encuentra
-// filas cortas en un AST que no pasó por el parser: el de un --filter o uno
-// leído de JSON. Antes eran TABLE003, un error.
+// shortTableRows es el aviso TABLE010 de cada fila que ast.DecodeAST
+// completó con celdas vacías: la de un AST que entregó un --filter o que se
+// leyó de JSON, que ya no se ve corta. Las que completa el parser ya las
+// avisa el parser.
 func shortTableRows(elem *ast.TableElement) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
-	want := len(elem.Headers)
-	for i, row := range elem.Rows {
-		if len(row) != 0 && len(row) < want {
-			diags = append(diags, elements.ShortTableRowWarning(tableRowPosition(elem, i), len(row), want, "linter"))
+	padded := elem.DecodePaddedRows()
+	for i := range elem.Rows {
+		if have, ok := padded[i]; ok {
+			diags = append(diags, elements.ShortTableRowWarning(tableRowPosition(elem, i), have, len(elem.Headers), "linter"))
 		}
 	}
 	return diags

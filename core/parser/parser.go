@@ -168,7 +168,6 @@ func (p *Parser) ParseDocument(content string, filePath string) (*ast.AST, []dia
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
-	allDiagnostics = append(allDiagnostics, padShortTableRows(astNode)...)
 	return astNode, finishNodeIdentities(astNode, allDiagnostics, identityDiags, nodeIDs, lineMap, content, normalizationModified)
 }
 
@@ -440,7 +439,6 @@ func (p *Parser) Parse(content string, filePath string) (*ast.AST, []diagnostics
 	}
 
 	allDiagnostics = append(allDiagnostics, bodyDiagnostics...)
-	allDiagnostics = append(allDiagnostics, padShortTableRows(astNode)...)
 	return astNode, finishNodeIdentities(astNode, allDiagnostics, identityDiags, nodeIDs, lineMap, content, normalizationModified)
 }
 

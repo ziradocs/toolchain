@@ -198,6 +198,7 @@ func (p *StrictParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		}
 	}
 
+	p.diagnostics = append(p.diagnostics, padShortTableRows(astNode)...)
 	return astNode, p.diagnostics
 }
 

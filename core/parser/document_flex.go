@@ -204,6 +204,7 @@ func (p *DocumentFlexParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		restoreNormalizedPositions(astNode, p.diagnostics, *p.positionSource, seenLines(*p.positionSource, p.lineOffset, body))
 	}
 
+	p.diagnostics = append(p.diagnostics, padShortTableRows(astNode)...)
 	return astNode, p.diagnostics
 }
 

@@ -814,6 +814,9 @@ type TableElement struct {
 	// referencia cruzada, issue #239).
 	Label  string `json:"label,omitempty"`
 	Number int    `json:"number,omitempty"`
+
+	// decodePadded: ver DecodePaddedRows. No se serializa.
+	decodePadded map[int]int
 }
 
 func (t TableElement) element() {}

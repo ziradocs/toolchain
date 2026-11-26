@@ -4,6 +4,7 @@
 package linter
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -119,29 +120,111 @@ func TestTABLE010Policy(t *testing.T) {
 	}
 }
 
-// Un AST que no pasó por el parser (un --filter, uno leído de JSON) puede
-// traer una fila corta: el linter da TABLE010, no TABLE003, también en una
-// columna de grid.
+// Un AST que llega de un --filter o de JSON pasa por ast.DecodeAST, que
+// completa la fila corta: el linter la avisa con TABLE010 en la línea de la
+// fila (también en una columna de grid), y la fila llega entera a los
+// generadores. Un AST armado en Go que no pasó por el parser ni por
+// DecodeAST trae la fila corta y así saldría en los generadores: sigue
+// siendo TABLE003 (TABLE009 en una columna de grid), como antes.
 func TestLinterShortRowFromAnASTThatSkippedTheParser(t *testing.T) {
 	table := func() *ast.TableElement {
 		tbl := ast.NewTableElement(diagnostics.NewPosition(3, 1))
 		tbl.Headers = []string{"A", "B"}
 		tbl.Rows = [][]string{{"1", "2"}, {"3"}}
+		tbl.Cells = ast.DeriveCellsFromFlat(tbl.Headers, tbl.Rows)
 		tbl.RowPositions = []diagnostics.Position{diagnostics.NewPosition(5, 1), diagnostics.NewPosition(6, 1)}
 		return tbl
 	}
-	grid := &ast.GridElement{Columns: []ast.ColumnElement{{Elements: []ast.Element{table()}}}}
-	for name, el := range map[string]ast.Element{"block": table(), "grid column": grid} {
+	wrap := map[string]func(*ast.TableElement) ast.Element{
+		"block": func(tbl *ast.TableElement) ast.Element { return tbl },
+		"grid column": func(tbl *ast.TableElement) ast.Element {
+			pos := diagnostics.NewPosition(2, 1)
+			grid, col := ast.NewGridElement(pos), ast.NewColumnElement(pos, "")
+			col.Elements = []ast.Element{tbl}
+			grid.Columns = []ast.ColumnElement{*col}
+			return grid
+		},
+	}
+	tableDiags := func(doc *ast.AST) []diagnostics.Diagnostic {
+		var got []diagnostics.Diagnostic
+		for _, d := range (&ElementStructureRule{}).Check(&doc.ContentBlocks[0]) {
+			if strings.HasPrefix(d.RuleID, "TABLE") {
+				got = append(got, d)
+			}
+		}
+		return got
+	}
+	for name, w := range wrap {
+		t.Run(name+" through DecodeAST", func(t *testing.T) {
+			doc := ast.NewAST(diagnostics.NewPosition(1, 1))
+			doc.ContentBlocks = []ast.ContentBlock{{Elements: []ast.Element{w(table())}}}
+			raw, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := ast.DecodeAST(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tbl := findTable(decoded)
+			if !reflect.DeepEqual(tbl.Rows, [][]string{{"1", "2"}, {"3", ""}}) || len(tbl.Cells[2]) != 2 {
+				t.Fatalf("DecodeAST did not complete the row: rows %q cells %+v", tbl.Rows, tbl.Cells)
+			}
+			got := tableDiags(decoded)
+			if len(got) != 1 || got[0].RuleID != "TABLE010" || !got[0].IsWarning() || got[0].Position.Line != 6 || !strings.Contains(got[0].Message, "has 1 cell where") {
+				t.Fatalf("want one TABLE010 warning on line 6, got %v", got)
+			}
+		})
+		t.Run(name+" built in Go", func(t *testing.T) {
+			doc := ast.NewAST(diagnostics.NewPosition(1, 1))
+			doc.ContentBlocks = []ast.ContentBlock{{Elements: []ast.Element{w(table())}}}
+			want := "TABLE003"
+			if name == "grid column" {
+				want = "TABLE009"
+			}
+			got := tableDiags(doc)
+			if len(got) != 1 || got[0].RuleID != want || got[0].Position.Line != 6 {
+				t.Fatalf("want one %s on line 6, got %v", want, got)
+			}
+		})
+	}
+}
+
+// Las entradas públicas de cada parser de cuerpo completan las filas cortas
+// y las avisan, igual que ParseDocument y Parse.
+func TestBodyParsersPadShortRows(t *testing.T) {
+	pipe := "| A | B |\n|---|---|\n| 1 |\n"
+	for name, parse := range map[string]func() (*ast.AST, []diagnostics.Diagnostic){
+		"NewDocumentFlexParser": func() (*ast.AST, []diagnostics.Diagnostic) {
+			return parser.NewDocumentFlexParser("# D\n\n"+pipe, util.NewNoop()).Parse()
+		},
+		"NewDocumentFlexParserWithNormalization": func() (*ast.AST, []diagnostics.Diagnostic) {
+			return parser.NewDocumentFlexParserWithNormalization("# D\n\n"+pipe, util.NewNoop()).Parse()
+		},
+		"NewDocumentStrictParser": func() (*ast.AST, []diagnostics.Diagnostic) {
+			return parser.NewDocumentStrictParser("---\nmode: strict\ntitle: \"T\"\n---\n\nSECTION \"S\"\n"+indentLines(pipe, 2), util.NewNoop()).Parse()
+		},
+		"NewFlexParser": func() (*ast.AST, []diagnostics.Diagnostic) {
+			return parser.NewFlexParser("# S\n\n"+pipe, util.NewNoop()).Parse()
+		},
+		"NewStrictParser": func() (*ast.AST, []diagnostics.Diagnostic) {
+			return parser.NewStrictParser("SLIDE content\n  title: \"T\"\n"+indentLines(pipe, 2), util.NewNoop()).Parse()
+		},
+	} {
 		t.Run(name, func(t *testing.T) {
-			block := &ast.ContentBlock{Elements: []ast.Element{el}}
-			var got []diagnostics.Diagnostic
-			for _, d := range (&ElementStructureRule{}).Check(block) {
-				if strings.HasPrefix(d.RuleID, "TABLE") {
-					got = append(got, d)
+			doc, diags := parse()
+			tbl := findTable(doc)
+			if tbl == nil || !reflect.DeepEqual(tbl.Rows, [][]string{{"1", ""}}) {
+				t.Fatalf("rows not completed: %+v", tbl)
+			}
+			n := 0
+			for _, d := range diags {
+				if d.RuleID == "TABLE010" {
+					n++
 				}
 			}
-			if len(got) != 1 || got[0].RuleID != "TABLE010" || !got[0].IsWarning() || got[0].Position.Line != 6 {
-				t.Fatalf("want one TABLE010 warning on line 6, got %v", got)
+			if n != 1 {
+				t.Fatalf("%d TABLE010, want 1: %v", n, diags)
 			}
 		})
 	}

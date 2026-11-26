@@ -1371,12 +1371,16 @@ const TableShortRowRuleID = "TABLE010"
 
 // ShortTableRowWarning es el aviso TABLE010 para una fila de have celdas en
 // una tabla cuyo encabezado tiene want, en la posición pos de la fila. source
-// es quien la encontró: "table-parser" cuando el parser la completó,
-// "linter" cuando llegó corta en un AST que no pasó por el parser (un
-// --filter, un AST en JSON).
+// es quien la avisa: "table-parser" cuando el parser la completó, "linter"
+// cuando la completó ast.DecodeAST (la salida de un --filter, un AST en
+// JSON).
 func ShortTableRowWarning(pos diagnostics.Position, have, want int, source string) diagnostics.Diagnostic {
+	cells := "cells"
+	if have == 1 {
+		cells = "cell"
+	}
 	return diagnostics.NewWarning(
-		fmt.Sprintf("Table row has %d cells where the header has %d, so the missing cells are left empty. Give it one cell per header column; an empty cell is written | |", have, want),
+		fmt.Sprintf("Table row has %d %s where the header has %d, so the missing cells are left empty. Give it one cell per header column; an empty cell is written | |", have, cells, want),
 		pos, source).WithRuleID(TableShortRowRuleID)
 }
 

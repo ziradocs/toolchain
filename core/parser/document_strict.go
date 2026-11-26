@@ -137,6 +137,7 @@ func (p *DocumentStrictParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 	}
 
 	promoteUnclosedSpecialBlocks(p.diagnostics)
+	p.diagnostics = append(p.diagnostics, padShortTableRows(astNode)...)
 	return astNode, p.diagnostics
 }
 
