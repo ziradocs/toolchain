@@ -384,13 +384,20 @@ a table reads (the separator row, the `TABLE008` and `TABLE007` cases above)
 is still decided with the cells the author wrote, before the row is
 completed. A row with more cells than the header is still `TABLE003`, an error
 (`TABLE009` inside a typed grid column): GFM drops the extra cells, and that
-would lose text without a word. The linter gives `TABLE010` too for a short
-row in an AST that did not come from the parser (a `--filter`, an AST read
-from JSON).
+would lose text without a word. An AST that reaches the linter and the
+writers through `ast.DecodeAST` (the output of a `--filter`, an AST read from
+JSON) gets the same treatment: a short row is completed with empty cells and
+the linter gives `TABLE010` on its line. Only an AST built in Go that went
+through neither the parser nor `DecodeAST` still carries a short row; there
+the writers show it short, and it is still `TABLE003` (`TABLE009` in a typed
+grid column).
 
-**This is a behavior change.** Up to v2.59.1 a short row was `TABLE003`, so
-one short row stopped the whole document from building; it now builds, with
-a warning. A `lint_policy:` that raised, lowered or turned off `TABLE003`, or
+**This is a behavior change.** Up to v2.59.1 a short row was `TABLE003` (or
+`TABLE009` in a typed grid column), so one short row stopped the whole
+document from building; it now builds, with a `TABLE010` warning, and the
+row comes padded in the AST (`rows` and `cells`), in `fmt` and in every
+output. The text of `TABLE003` also changed: it now ends in `: it has more
+cells than the header`. A `lint_policy:` that raised, lowered or turned off `TABLE003`, or
 `TABLE009` in a typed grid column, no longer reaches a short row: name
 `TABLE010` (`severity: error` restores the old failure).
 
@@ -528,6 +535,7 @@ and quotes the earlier one.
 | `TABLE008` | A line of a `TABLE` body that is not a row or a property it reads, a `headers:` value that is not an array, a `rows:` row that does not end in `]`, that is not indented more than `rows:` or comes after a blank line, that is indented differently from the first row of its block, or that v2.58.0 did not read and does not fit the headers, a `caption:` or `label:` that a later one replaces; in a strict Markdown table a first row that does not end in `\|`, a row with no cells, a line right after the header read as the separator row only because it contains `---` and does not start and end with `\|` (`x --- y`) or does not have one cell per column, and a line of dashes with no `\|` (`---`, `:---:`) read as the separator row of a table with more than one column. In a Markdown table in flex or a `:::` block, a row with dashes in a cell, or a row of only dashes below the separator, that does not fit the table (a different number of cells than the header, or a first line that cannot be the header) and is skipped, as described above |
 | `TABLE008` (YAML) | The lines of a `cells:` or `tableRows:` block that the YAML reader leaves out without an error because they are indented less than the rows above them (a `---` at the key's indentation is one) |
 | `TABLE004` | (existing) the `cells:` block is not valid YAML; it now covers the whole block, and so does the existing error for an invalid `tableRows:` block |
+| `TABLE010` | Not a lost line: a table row with fewer cells than the header, in either dialect. The row is read and completed with empty cells (see the tables section above); the warning names its line |
 | `CHART007` | A line of a `<<chart>>` body nested under a key that does not read nested lines, a key of the Chart.js vocabulary the parser does not translate (also summed up by `CHART005`), each key of a `<<chart: combo>>` YAML body it does not read, an `options:` block that is not valid YAML or not a mapping, a `data:`, `series:`, `labels:`, `type:` or `yAxisID:` value that is not an array, and a `data:`, `series:`, `labels:`, `title:`, `type:`, `yAxisID:`, `options:`, `unit:` or `showDataLabels:` that a later one replaces (from its line to the end of its value), a `width=` or `height=` repeated on the `<<chart>>` line, of which one is read, and a key of an object of a JSON body that a later one in the same object replaces (the JSON is valid and reaches the AST as written; what reads it keeps the last one) |
 | `CHART002` | (existing) a JSON chart body that is not valid JSON; it now covers the whole body |
 | `METRIC006`, `QUIZ007`, `POLL007` | Each top-level key of a `<<metric>>`, `<<quiz>>` or `<<poll>>` body that the block does not read, from the key to the end of its value (the per-block `METRIC003`, `QUIZ005` and `POLL004` stay as they are), and each earlier occurrence of a key the body repeats, quoting the later one (a repeated key makes the whole body invalid YAML). An invalid YAML body keeps `METRIC002`, `QUIZ004` or `POLL006`, which now cover the whole body |
@@ -617,6 +625,21 @@ embedded_element   ::= "<<" element_type (":" element_subtype)? ">>"
 markdown_element ::= heading | paragraph | list | code_block | 
                      image | table | blockquote
 ```
+
+Flex normalization may rewrite lines before the parser reads them (a
+```` ```mermaid ```` fence becomes `<<mermaid>>` without its closing fence; a
+run of tab-separated lines becomes a table with a header and a separator).
+Positions in the AST (`position`, `endPosition`, `rowPositions`) and in every
+diagnostic count the lines of the source, not those of the normalized text:
+the parser maps each line it read back to the source line it came from. A
+line the normalizer kept as written maps to its own line; a line it rewrote
+maps into the source lines it replaced.
+
+**This is a behavior change.** Up to v2.59.1 every position after the first
+line the normalizer added or removed pointed at the normalized text, so a
+diagnostic could land several lines away from its source line (one line per
+```` ```mermaid ```` fence before it). Documents that the normalizer does not
+rewrite keep the same positions.
 
 ## 🔧 **Data Type Specifications**
 
