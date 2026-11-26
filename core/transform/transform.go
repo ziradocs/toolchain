@@ -150,6 +150,9 @@ func RunFilters(doc *ast.AST, filterPaths []string, timeout time.Duration) (*ast
 		if err != nil {
 			return nil, fmt.Errorf("filter %q: %w", path, err)
 		}
+		// Una fila corta que completó el decode de un filtro anterior ya no
+		// se ve corta en la salida de este: su aviso (TABLE010) viaja aparte.
+		ast.CarryDecodePaddedRows(before, doc)
 		if ast.UsesTableRows(before) {
 			if !ast.UsesTableRows(doc) || !reflect.DeepEqual(ast.TableIdentityOwners(before), ast.TableIdentityOwners(doc)) {
 				return nil, fmt.Errorf("filter %q: table row/cell identities or capability were removed or changed", path)
