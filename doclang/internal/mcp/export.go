@@ -91,6 +91,11 @@ type exportInput struct {
 	Output    string `json:"output,omitempty" jsonschema:"output file, relative to the server root or absolute inside it; its directory must exist and its extension must match format. Defaults to the input path with the format's extension"`
 	Overwrite bool   `json:"overwrite,omitempty" jsonschema:"replace the output file if it already exists (default false: refuse)"`
 	TOC       *bool  `json:"toc,omitempty" jsonschema:"force the table of contents on or off; defaults to the document's front matter, or on when it has front matter"`
+	// Title es el --title de `doclang build`. Puntero para distinguir un
+	// title ausente (manda la fuente) de uno vacío (error, como en el CLI).
+	// El 500 de la descripción es pipeline.MaxTitleRunes
+	// (TestExport_TitleSchemaStatesTheLimit lo mantiene al día).
+	Title *string `json:"title,omitempty" jsonschema:"document title, whatever the source declares (like doclang build --title). It goes where a front matter title: goes: the <title> and page-view header in html, the title and running header in pdf, the title property and title paragraph in docx, and {{title}} where the format already substitutes it (not in docx body paragraphs), read the same way as a front matter title:. Turns nothing else on. One line: line breaks and control characters become spaces, bidi controls are removed. Omit it to keep the source's title; an empty, invisible-only or over 500 characters value is an error"`
 	// IncludeRoot es el --include-root de `doclang build`.
 	IncludeRoot string `json:"includeRoot,omitempty" jsonschema:"directory @include paths resolve against and are confined to, relative to the server root or absolute inside it (like doclang build --include-root). Defaults to baseDir, or the input file's directory"`
 	// BaseDir es el --base-dir de `doclang build`.
@@ -170,6 +175,15 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 	// (ME-2). Después se pasa como no confiable al pipeline igual.
 	if err := validateThemeName(in.Theme); err != nil {
 		return fail("%v", err)
+	}
+	// Un title ausente deja el de la fuente; uno presente, aunque sea "",
+	// tiene que decir algo (mismo error que --title en el CLI).
+	if in.Title != nil {
+		title, err := pipeline.NormalizeTitle(*in.Title)
+		if err != nil {
+			return fail("invalid title: %v", err)
+		}
+		in.Title = &title
 	}
 
 	maxBytes := util.ResolveMaxInputBytes(0, pipeline.MaxInputSizeEnvVar)
@@ -296,6 +310,15 @@ func runExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exp
 	return r.out, nil
 }
 
+// exportTitle es el title de la tool, ya normalizado por runExport, o "" si
+// el cliente no lo mandó.
+func exportTitle(title *string) string {
+	if title == nil {
+		return ""
+	}
+	return *title
+}
+
 // generateExport corre el pipeline de `doclang build` y escribe en tmpPath.
 func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, in exportInput, format, inputAbs, baseDir, includeRoot string, content []byte, maxBytes int, tmpPath string) (*exportOutput, *exportError) {
 	inputName := cfg.root.display(inputAbs)
@@ -348,6 +371,7 @@ func generateExport(ctx context.Context, logger util.Logger, cfg exportConfig, i
 		Format:            format,
 		OutputFile:        tmpPath,
 		TOC:               in.TOC,
+		Title:             exportTitle(in.Title),
 		RenderMode:        exportRenderMode,
 		ImageFormat:       "png",
 		WebPQuality:       85,

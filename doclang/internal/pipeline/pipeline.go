@@ -408,6 +408,10 @@ type GenerateOptions struct {
 	TOC        *bool
 	Numbering  *bool
 	PageBreaks bool
+	// Title, si no está vacío, es el título del documento diga lo que diga
+	// la fuente (--title, el `title` de la tool export). Generate lo pasa
+	// por NormalizeTitle; ver withTitle para qué cambia y qué no.
+	Title string
 
 	RenderMode     string
 	ImageFormat    string
@@ -527,6 +531,20 @@ func Generate(log util.Logger, p *Prepared, inputFile string, opts GenerateOptio
 	if err := ValidateFailOnUnavailable(opts.FailOnUnavailable, format); err != nil {
 		return err
 	}
+	title := ""
+	if opts.Title != "" {
+		var err error
+		if title, err = NormalizeTitle(opts.Title); err != nil {
+			return err
+		}
+	}
+	if err := ValidateTitle(title, format); err != nil {
+		return err
+	}
+
+	// El título de --title entra recién acá, con el TOC y la numeración ya
+	// resueltos sobre la fuente tal cual (ver withTitle).
+	doc = withTitle(doc, title)
 
 	var pageConfig *ast.PageConfig
 	var headerFooterConfig *ast.HeaderFooterConfig
