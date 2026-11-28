@@ -666,11 +666,11 @@ func isLayoutName(value string) bool {
 //
 // La desduplicación vive en el parser —y no en el renderer— porque acá el
 // `id` queda dentro del AST, así que lo que emite el HTML y lo que reporta
-// `--format json` no pueden divergir. Eso es viable en SlideLang porque
-// NADA vuelve a derivar estos anchors: no hay TOC ni xref del lado de las
-// presentaciones. En DocLang no se puede hacer lo mismo sin tocar a la vez
-// las ~7 re-derivaciones de document_html.go, que seguirían apuntando al
-// anchor sin sufijo; ese caso queda como issue aparte (#267).
+// `--format json` no pueden divergir. DocLang hace lo mismo desde #267
+// (assignDocumentAnchors), con la misma cuenta y sin el prefijo; ahí el TOC,
+// la barra lateral, el DOCX y el Markdown leen el id del AST en vez de
+// volver a derivarlo, y el de las secciones sale de
+// renderer.DocumentSectionAnchors.
 //
 // El prefijo "heading-" es DELIBERADO y no cosmético — hace tres cosas a la
 // vez, y las tres importan (hallazgo de code review, ronda 2):

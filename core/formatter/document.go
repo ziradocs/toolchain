@@ -56,11 +56,12 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 	b.WriteString(fm)
 
 	hasTitleBlock := false
+	anchorPlan := planDocumentAnchors(doc)
 	for i, block := range doc.ContentBlocks {
 		if i > 0 || fm != "" {
 			b.WriteString("\n")
 		}
-		blockText, err := formatDocumentSection(&block, &hasTitleBlock, i == 0, ast.UsesMathSource(doc), fm)
+		blockText, err := formatDocumentSection(&block, &hasTitleBlock, i == 0, ast.UsesMathSource(doc), fm, anchorPlan)
 		if err != nil {
 			return "", err
 		}
@@ -83,7 +84,7 @@ func formatDocumentWithoutIDs(doc *ast.AST) (string, error) {
 // parsearse como encabezado y dejaría un `#` suelto en el contenido— y no
 // consume la regla posicional: el parser sigue marcando "title" al primer
 // `#` real, venga o no después de ese preámbulo.
-func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, literalMath bool, frontMatter string) (string, error) {
+func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, literalMath bool, frontMatter string, anchorPlan documentAnchorPlan) (string, error) {
 	var b strings.Builder
 
 	headless := first && block.Title == "" && block.Heading == ""
@@ -105,7 +106,7 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, 
 	// corpus real de DocLang siempre separa elementos con línea en blanco
 	// (ver el mismo archivo); replicar esa convención evita el gap.
 	for _, el := range block.Elements {
-		elText, err := formatDocumentElement(el, literalMath, frontMatter)
+		elText, err := formatDocumentElement(el, literalMath, frontMatter, anchorPlan)
 		if err != nil {
 			return "", err
 		}
@@ -124,7 +125,7 @@ func formatDocumentSection(block *ast.ContentBlock, hasTitleBlock *bool, first, 
 	return b.String(), nil
 }
 
-func formatDocumentElement(el ast.Element, literalMath bool, frontMatter string) (string, error) {
+func formatDocumentElement(el ast.Element, literalMath bool, frontMatter string, anchorPlan documentAnchorPlan) (string, error) {
 	var body string
 	var err error
 
@@ -136,13 +137,14 @@ func formatDocumentElement(el ast.Element, literalMath bool, frontMatter string)
 			body = e.Content
 		}
 	case *ast.HeadingElement:
-		// El flex de DocLang deriva el anchor del texto y no tiene sintaxis
-		// para declararlo; un anchor que no se re-deriva se perdería, así que
-		// se rechaza en vez de emitir un `##` que cambiaría el destino de una
+		// El flex de DocLang deriva el anchor del texto (contando los
+		// repetidos, ver planDocumentAnchors) y no tiene sintaxis para
+		// declararlo; un anchor que no se re-deriva se perdería, así que se
+		// rechaza en vez de emitir un `##` que cambiaría el destino de una
 		// referencia. El texto es la fuente autoral exacta.
 		if e.Level < 2 || e.Level > 6 {
 			err = newUnsupported("heading", fmt.Sprintf("a level %d heading cannot be represented in DocLang flex (2-6)", e.Level))
-		} else if e.Anchor != renderer.DeriveAnchor(e.Text) {
+		} else if anchorPlan.mustDeclare(e) {
 			err = newUnsupported("heading", fmt.Sprintf("the anchor %q is not derived from %q and DocLang flex cannot declare it; use the strict dialect", e.Anchor, e.Text))
 		} else if strings.ContainsAny(e.Text, "\r\n") {
 			err = newUnsupported("heading", "the text of a heading cannot contain line breaks")
@@ -176,7 +178,7 @@ func formatDocumentElement(el ast.Element, literalMath bool, frontMatter string)
 	case *ast.MetricElement:
 		body, err = formatMetric(e)
 	case *ast.SpecialBlockElement:
-		body, err = formatFlexSpecialBlock(e, frontMatter)
+		body, err = formatFlexSpecialBlock(e, frontMatter, anchorPlan)
 	case *ast.CodeGroupElement:
 		body, err = formatCodeGroup(e)
 	case *ast.MermaidElement:

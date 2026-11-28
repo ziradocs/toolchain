@@ -4,11 +4,11 @@
 package elements
 
 import (
-	"strconv"
 	"strings"
 
 	"go.ziradocs.com/core/v2/ast"
 	"go.ziradocs.com/core/v2/diagnostics"
+	"go.ziradocs.com/core/v2/internal/anchors"
 	"go.ziradocs.com/core/v2/renderer"
 )
 
@@ -161,58 +161,63 @@ func (p *HeadingParser) Parse(ctx *ParseContext, startIndex int) *ParseResult {
 // flex, el strict y el formatter tienen que reproducir exactamente la misma
 // secuencia: el formatter decide si emitir `id:` comparando el anchor real
 // contra el que el parser derivaría en esa misma posición.
+//
+// La cuenta y la regla de colisión son las de anchors.Set, la misma que usa
+// DocLang (DocumentHeadingAnchors) sin el prefijo.
 type HeadingAnchors struct {
-	used map[string]int
-	// next es, por prefijo, el sufijo desde el que buscar el próximo libre.
-	// Un anchor usado nunca se libera, así que todo sufijo por debajo del
-	// último asignado sigue ocupado: empezar ahí da el mismo resultado que
-	// empezar en 2, sin volver a probar uno por uno los ya tomados. Sin esto,
-	// k encabezados con el mismo texto costaban O(k²).
-	next map[string]int
+	set anchors.Set
+}
+
+// headingPrefixed es el id base, con prefijo, de un encabezado de SlideLang.
+func headingPrefixed(text string) string {
+	if base := DeriveAnchor(text); base != "" {
+		return "heading-" + base
+	}
+	return "heading"
 }
 
 // Derive devuelve el anchor que Unique asignaría a text, sin registrarlo.
 func (a *HeadingAnchors) Derive(text string) string {
-	candidate, _, _ := a.derive(text)
-	return candidate
-}
-
-func (a *HeadingAnchors) derive(text string) (candidate, prefixed string, n int) {
-	base := DeriveAnchor(text)
-	prefixed = "heading"
-	if base != "" {
-		prefixed = "heading-" + base
-	}
-	candidate = prefixed
-	n = max(2, a.next[prefixed])
-	if a.used[candidate] == 0 {
-		return candidate, prefixed, 0
-	}
-	for candidate = prefixed + "-" + strconv.Itoa(n); a.used[candidate] > 0; n++ {
-		candidate = prefixed + "-" + strconv.Itoa(n+1)
-	}
-	return candidate, prefixed, n
+	return a.set.Derive(headingPrefixed(text))
 }
 
 // Unique deriva el anchor de text y lo registra.
 func (a *HeadingAnchors) Unique(text string) string {
-	candidate, prefixed, n := a.derive(text)
-	a.Reserve(candidate)
-	if n > 0 {
-		if a.next == nil {
-			a.next = make(map[string]int)
-		}
-		a.next[prefixed] = n
-	}
-	return candidate
+	return a.set.Unique(headingPrefixed(text))
 }
 
 // Reserve registra un anchor declarado por el autor. Devuelve false si ya se
 // había usado, en cuyo caso el caller reporta el duplicado.
 func (a *HeadingAnchors) Reserve(anchor string) bool {
-	if a.used == nil {
-		a.used = make(map[string]int)
-	}
-	a.used[anchor]++
-	return a.used[anchor] == 1
+	return a.set.Reserve(anchor)
+}
+
+// DocumentHeadingAnchors reparte los anchors de los encabezados de un
+// documento de DocLang (issue #267): la misma cuenta que HeadingAnchors, sin
+// prefijo, y con anchors.DocumentFallback como id base de un texto que no
+// deja ningún carácter utilizable. La usan el parser (para asignar) y el
+// formatter (para saber si un anchor es el que el parser derivaría).
+type DocumentHeadingAnchors struct {
+	set anchors.Set
+}
+
+// documentBase es el id base de un encabezado de documento.
+func documentBase(text string) string {
+	return anchors.DocumentBase(DeriveAnchor(text))
+}
+
+// Derive devuelve el anchor que Unique asignaría a text, sin registrarlo.
+func (a *DocumentHeadingAnchors) Derive(text string) string {
+	return a.set.Derive(documentBase(text))
+}
+
+// Unique deriva el anchor de text y lo registra.
+func (a *DocumentHeadingAnchors) Unique(text string) string {
+	return a.set.Unique(documentBase(text))
+}
+
+// Reserve registra un anchor que no se renombra. Devuelve false si ya se
+// había usado.
+func (a *DocumentHeadingAnchors) Reserve(anchor string) bool {
+	return a.set.Reserve(anchor)
 }

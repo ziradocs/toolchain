@@ -136,6 +136,7 @@ func (p *DocumentStrictParser) Parse() (*ast.AST, []diagnostics.Diagnostic) {
 		p.parseSection(astNode)
 	}
 
+	assignDocumentAnchors(astNode)
 	promoteUnclosedSpecialBlocks(p.diagnostics)
 	p.diagnostics = append(p.diagnostics, padShortTableRows(astNode)...)
 	return astNode, p.diagnostics
@@ -276,7 +277,11 @@ func (p *DocumentStrictParser) parseSection(astNode *ast.AST) {
 	}
 
 	parent := &astNode.ContentBlocks[len(astNode.ContentBlocks)-1]
-	parent.Elements = append(parent.Elements, elements.BuildHeadingElement(title, level, p.position(headerLine), explicitID))
+	heading := elements.BuildHeadingElement(title, level, p.position(headerLine), explicitID)
+	// Un id sin caracteres utilizables ya es un error y no cuenta como
+	// declarado.
+	heading.HeadingAnchorDeclared = explicitID != "" && heading.HeadingAnchor != ""
+	parent.Elements = append(parent.Elements, heading)
 	parent.Elements = append(parent.Elements, scratch.Elements...)
 }
 

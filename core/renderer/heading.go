@@ -62,6 +62,7 @@ func LegacyHeadingElement(h *ast.HeadingElement) *ast.TextElement {
 	el.HeadingSource = h.Text
 	el.HeadingAnchor = h.Anchor
 	el.HeadingContent = el.Content
+	el.HeadingAnchorDeclared = h.AnchorDeclared
 	if h.TextHTML != "" {
 		el.ContentHTML = fmt.Sprintf("<h%d id=\"%s\">%s</h%d>", h.Level, h.Anchor, h.TextHTML, h.Level)
 	}
