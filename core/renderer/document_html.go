@@ -1738,14 +1738,14 @@ func generateDocumentTOC(doc *ast.AST, opts DocumentHTMLOptions, variables map[s
     <ul>
 `)
 
+	sectionAnchors := documentSectionAnchors(doc, variables)
 	sectionNum := 1
-	for _, slide := range doc.ContentBlocks {
+	for i, slide := range doc.ContentBlocks {
 		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
 			titleProcessed := proseLineVariables(title, variables)
-			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
-			anchor = SanitizeAnchor(anchor)
+			anchor := sectionAnchors[i]
 			titleEscaped := EscapeHTML(titleProcessed)
 
 			if opts.Numbering && numbered {
@@ -2112,14 +2112,14 @@ func generateDocumentBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 
 	// Standard mode: continuous flow. The watermark itself is emitted once
 	// by GenerateDocumentHTML, right after <body> opens — see its comment.
+	sectionAnchors := documentSectionAnchors(doc, variables)
 	sectionNum := 1
 	for i, slide := range doc.ContentBlocks {
 		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
 			titleProcessed := proseLineVariables(title, variables)
-			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
-			anchor = SanitizeAnchor(anchor)
+			anchor := sectionAnchors[i]
 			titleEscaped := EscapeHTML(titleProcessed)
 
 			if opts.Numbering && numbered {
@@ -2205,13 +2205,13 @@ func generatePageViewBody(doc *ast.AST, opts DocumentHTMLOptions, variables map[
 `)
 
 	// Generate content
+	sectionAnchors := documentSectionAnchors(doc, variables)
 	for i, slide := range doc.ContentBlocks {
 		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
 			titleProcessed := proseLineVariables(title, variables)
-			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
-			anchor = SanitizeAnchor(anchor)
+			anchor := sectionAnchors[i]
 			titleEscaped := EscapeHTML(titleProcessed)
 
 			if opts.Numbering && numbered {
@@ -2683,14 +2683,14 @@ func generateViewerSidebar(doc *ast.AST, opts DocumentHTMLOptions, variables map
 `)
 
 	// Generate TOC items
+	sectionAnchors := documentSectionAnchors(doc, variables)
 	sectionNum := 1
-	for _, slide := range doc.ContentBlocks {
+	for i, slide := range doc.ContentBlocks {
 		title, numbered := resolveSectionTitle(slide)
 
 		if title != "" {
 			titleProcessed := proseLineVariables(title, variables)
-			anchor := strings.ToLower(strings.ReplaceAll(titleProcessed, " ", "-"))
-			anchor = SanitizeAnchor(anchor)
+			anchor := sectionAnchors[i]
 			titleEscaped := EscapeHTML(titleProcessed)
 
 			if opts.Numbering && numbered {

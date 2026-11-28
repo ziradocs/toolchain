@@ -674,6 +674,31 @@ the same positional rule the flex dialect uses. Levels 2-6 are **not** blocks: t
 document renderer, the TOC generator and the transform stages (`xref`, numbering) consume
 either dialect without a single per-dialect branch.
 
+**Heading anchors are unique in a document** (both dialects). Every heading DocLang draws
+counts, in document order: each section title (level 1) and each level 2-6 heading, including
+headings inside a `:::` block. The first heading with a given base anchor
+keeps it; later ones take `-2`, `-3`, … (`# Setup` then `## Setup` give `setup` and
+`setup-2`). A suffix is checked against every anchor already used, base anchors included, so
+`Notas`, `Notas`, `Notas 2` give `notas`, `notas-2`, `notas-2-2`. A heading whose text leaves
+no anchor characters (another script, only emoji) gets the base anchor `seccion`. An `id:`
+declared in strict mode is never renamed and is reserved before any derived anchor is
+assigned, so no derived heading, before or after it, takes it; two equal `id:` values are left
+as written. Level 2-6 anchors live in the AST (`<hN id>` / `anchor`); a section title has no
+id field, and every output (HTML body, TOC, sidebar, PDF, DOCX bookmarks and links, Markdown)
+computes it the same way, reserving the level 2-6 anchors first. A section's base anchor
+comes from its title with `{{variables}}` substituted, as it always did in the HTML; a level
+2-6 heading's base anchor comes from its text as written. The same counting, with the
+`heading-` prefix, numbers SlideLang heading anchors.
+
+What makes two headings collide is their base anchor, not their text: `# Hola, Mundo`,
+`## Hola Mundo` and `## Hola-Mundo` all derive `hola-mundo` and become `hola-mundo`,
+`hola-mundo-2`, `hola-mundo-3`. This rule (introduced in issue #267) changes where two kinds
+of existing links land. With `## Notas`, `## Notas`, `## Notas 2`, a link to `#notas-2` used to
+reach "Notas 2" and now reaches the second "Notas" ("Notas 2" is `#notas-2-2`). In strict, a
+level-2 `id: notas` and a section titled "Notas" used to share `notas`, so `#notas` reached the
+section; now the `id:` keeps `notas` and the section is `notas-2`. `doclang fmt` writes back an
+`id:` where the author wrote it, unless the counting derives the same anchor without it.
+
 A section is kept whether or not it has elements, in both dialects and in any position: a
 declared `SECTION`, or a flex `#` with heading text, opens a block even when the next line is
 another section or the end of the file. The author wrote it on purpose, and a section added

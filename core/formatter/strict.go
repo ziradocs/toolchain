@@ -1030,13 +1030,20 @@ func formatSpecialBlock(e *ast.SpecialBlockElement) string {
 // (withNestedIndentation). Si tampoco así se relee igual, se rechaza en vez de
 // perder lo que tenía. A diferencia de strict no hay {typed}: en flex ese
 // atributo es parte del tipo del bloque.
-func formatFlexSpecialBlock(e *ast.SpecialBlockElement, frontMatter string) (string, error) {
+func formatFlexSpecialBlock(e *ast.SpecialBlockElement, frontMatter string, anchorPlan documentAnchorPlan) (string, error) {
 	plain := specialBlockText(e)
 	if len(e.Elements) == 0 {
 		return plain, nil
 	}
-	got := flexSpecialBlockReadBack(plain, frontMatter)
-	if sameSpecialBlock(e, got) {
+	// El bloque se relee aislado, así que el anchor de un encabezado de
+	// adentro sale de otra cuenta que la del documento (issue #267: el `# x`
+	// del envoltorio ya toma x, y un notas-2 no tiene a su notas). Se compara
+	// sin los anchors que el documento reformateado vuelve a derivar en su
+	// lugar (planDocumentAnchors); uno que haría falta declarar se compara
+	// tal cual y, como flex no lo puede escribir, el bloque se rechaza.
+	want := maskedSpecialBlock(e, anchorPlan.mustDeclare)
+	got := maskedSpecialBlock(flexSpecialBlockReadBack(plain, frontMatter), nil)
+	if sameSpecialBlock(want, got) {
 		return plain, nil
 	}
 	head := ":::" + e.BlockType
@@ -1045,13 +1052,13 @@ func formatFlexSpecialBlock(e *ast.SpecialBlockElement, frontMatter string) (str
 	}
 	for _, crossBlank := range []bool{false, true} {
 		indented := head + "\n" + withNestedIndentation(e, crossBlank) + "\n:::"
-		if sameSpecialBlock(e, flexSpecialBlockReadBack(indented, frontMatter)) {
+		if sameSpecialBlock(want, maskedSpecialBlock(flexSpecialBlockReadBack(indented, frontMatter), nil)) {
 			return indented, nil
 		}
 	}
 	return "", newUnsupported("special_block", fmt.Sprintf(
 		"the %s block (line %d) does not read back with the same content in flex: %s. Formatting would change it, so fmt leaves the file as it is",
-		blockLabel(e), e.GetPosition().Line, firstChangedElement(e, got)))
+		blockLabel(e), e.GetPosition().Line, firstChangedElement(want, got)))
 }
 
 // flexSpecialBlockReadBack relee text, un bloque escrito en flex, y devuelve
@@ -1070,6 +1077,21 @@ func flexSpecialBlockReadBack(text, frontMatter string) *ast.SpecialBlockElement
 		return nil
 	}
 	return blocks[0]
+}
+
+// maskedSpecialBlock es una copia de b con el anchor de sus encabezados
+// vacío, salvo los que keep conserva (nil no conserva ninguno). Ver
+// maskHeadingAnchors.
+func maskedSpecialBlock(b *ast.SpecialBlockElement, keep func(ast.Element) bool) *ast.SpecialBlockElement {
+	if b == nil {
+		return nil
+	}
+	if keep == nil {
+		keep = func(ast.Element) bool { return false }
+	}
+	c := *b
+	c.Elements = maskHeadingAnchors(b.Elements, keep)
+	return &c
 }
 
 func sameSpecialBlock(e, got *ast.SpecialBlockElement) bool {

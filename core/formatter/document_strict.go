@@ -59,6 +59,7 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 	}
 	b.WriteString(fm)
 
+	anchorPlan := planDocumentAnchors(doc)
 	needsBlankLine := fm != ""
 	prevAbsorbs := false // el elemento anterior es un CODE: ver absorbsTrailingBlankLines
 	for i := range doc.ContentBlocks {
@@ -101,10 +102,11 @@ func formatDocumentStrictWithoutIDs(doc *ast.AST) (string, error) {
 				fmt.Fprintf(&b, "SECTION %s\n", quote(heading.text))
 				fmt.Fprintf(&b, "  level: %d\n", heading.level)
 				// El `id:` solo se re-emite cuando NO es derivable del
-				// título. Emitirlo siempre sería ruido en cada subsección, y
-				// omitirlo cuando sí importa cambiaría a dónde apunta una
-				// referencia.
-				if heading.id != "" && heading.id != renderer.DeriveAnchor(heading.text) {
+				// título en su posición (contando los repetidos, ver
+				// planDocumentAnchors). Emitirlo siempre sería ruido en
+				// cada subsección, y omitirlo cuando sí importa cambiaría a
+				// dónde apunta una referencia.
+				if heading.id != "" && anchorPlan.mustDeclare(el) {
 					fmt.Fprintf(&b, "  id: %s\n", heading.id)
 				}
 				prevPipeTable = false

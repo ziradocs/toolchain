@@ -448,6 +448,11 @@ type TextElement struct {
 	// cambio a Content deja de coincidir y el renderer usa Content tal cual.
 	// Solo en memoria, como HeadingSource.
 	HeadingContent string `json:"-" tstype:"-"`
+	// HeadingAnchorDeclared dice que HeadingAnchor salió de un `id:` del
+	// autor (strict) y no del texto. El parser no lo renombra al desduplicar
+	// (issue #267) y el formatter lo vuelve a escribir donde estaba. Solo en
+	// memoria: un AST que llega por JSON no lo trae.
+	HeadingAnchorDeclared bool `json:"-" tstype:"-"`
 }
 
 func (t TextElement) element() {}
@@ -473,6 +478,9 @@ type HeadingElement struct {
 	TextHTML          string    `json:"textHTML,omitempty"`
 	LangRuns          []LangRun `json:"langRuns,omitempty"`
 	DiscardedLangRuns []LangRun `json:"discardedLangRuns,omitempty"`
+	// AnchorDeclared es TextElement.HeadingAnchorDeclared del encabezado
+	// tipado: Anchor salió de un `id:` del autor. Solo en memoria.
+	AnchorDeclared bool `json:"-" tstype:"-"`
 }
 
 func (h HeadingElement) element() {}

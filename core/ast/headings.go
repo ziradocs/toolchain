@@ -89,6 +89,7 @@ func promoteHeadingElements(elements []Element) {
 				h.EndPosition = e.EndPosition
 				h.NodeID = e.NodeID
 				h.Comments = e.Comments
+				h.AnchorDeclared = e.HeadingAnchorDeclared
 				elements[i] = h
 			}
 		case *SpecialBlockElement:
