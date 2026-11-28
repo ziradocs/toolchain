@@ -52,8 +52,10 @@ children of a slide, so both dialects produce the same AST for them. Flex also
 recognizes headings inside `:::` blocks, and those take their place in the
 sequence; strict has no heading syntax inside a block, so the strict
 formatters refuse a typed heading nested in a block instead of turning it into
-text (the DocLang flex formatter keeps it). DocLang anchors keep their
-existing rule (derived from the text, or `id:` on a strict `SECTION`).
+text (the DocLang flex formatter keeps it). DocLang anchors use the same
+counting without the `heading-` prefix (issue #267): derived from the text,
+unique in the document counting section titles too, `seccion` when the text
+leaves nothing, and an `id:` on a strict `SECTION` is never renamed.
 
 ## AST
 

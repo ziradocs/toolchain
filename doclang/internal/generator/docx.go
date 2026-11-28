@@ -289,7 +289,12 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 	}
 
 	// Título duplicado: ver planDOCXTitle.
-	titlePlan := planDOCXTitle(astDoc, opts.Numbering)
+	// sectionAnchors es el id de cada encabezado de sección, el mismo que
+	// le da el HTML (renderer.DocumentSectionAnchors, issue #267): el
+	// destino de un link #ancla. Con el código literal de doclang, como el
+	// HTML y el PDF, para que los tres repartan igual.
+	sectionAnchors := renderer.DocumentSectionAnchors(astDoc, true)
+	titlePlan := planDOCXTitle(astDoc, opts.Numbering, sectionAnchors)
 
 	// Renderizar frontmatter (título del documento)
 	if err := g.renderFrontMatter(doc, astDoc.FrontMatter, titlePlan); err != nil {
@@ -340,7 +345,7 @@ func (g *DOCXGenerator) Generate(astDoc *ast.AST, outputFile string, opts Genera
 			// El encabezado ya salió arriba, en el lugar del título.
 			title = ""
 		}
-		if err := g.renderSection(doc, block, title, num, i == len(astDoc.ContentBlocks)-1); err != nil {
+		if err := g.renderSection(doc, block, title, num, sectionAnchors[i], i == len(astDoc.ContentBlocks)-1); err != nil {
 			return fmt.Errorf("error rendering section: %w", err)
 		}
 		if numbered {
@@ -461,7 +466,7 @@ type docxTitlePlan struct {
 	omitTitle     bool
 }
 
-func planDOCXTitle(astDoc *ast.AST, numbering bool) docxTitlePlan {
+func planDOCXTitle(astDoc *ast.AST, numbering bool, sectionAnchors []string) docxTitlePlan {
 	plan := docxTitlePlan{hoistedBlock: -1}
 	if astDoc.FrontMatter == nil || astDoc.FrontMatter.Title == "" {
 		return plan
@@ -493,7 +498,7 @@ func planDOCXTitle(astDoc *ast.AST, numbering bool) docxTitlePlan {
 		}
 		plan.hoistedBlock = i
 		plan.headingText = sectionHeadingText(title, num)
-		plan.headingAnchor = renderer.DeriveAnchor(title)
+		plan.headingAnchor = sectionAnchors[i]
 		return plan
 	}
 	return plan
@@ -1346,11 +1351,11 @@ func (g *DOCXGenerator) renderSectionHeading(doc domain.Document, text, anchor s
 // igual que ya hacían los generadores HTML y Markdown; num == 0 significa
 // "sin numerar" (numbering deshabilitado, o esta sección no numera — el
 // preámbulo).
-func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int, last bool) error {
+func (g *DOCXGenerator) renderSection(doc domain.Document, section *ast.ContentBlock, title string, num int, anchor string, last bool) error {
 	// Título de la sección (H1)
 	if title != "" {
-		// El ancla es la del HTML: el título sin el número de sección.
-		if err := g.renderSectionHeading(doc, sectionHeadingText(title, num), renderer.DeriveAnchor(title)); err != nil {
+		// El ancla es la del HTML (renderer.DocumentSectionAnchors).
+		if err := g.renderSectionHeading(doc, sectionHeadingText(title, num), anchor); err != nil {
 			return err
 		}
 	}

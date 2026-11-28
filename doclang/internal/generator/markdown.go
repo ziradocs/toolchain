@@ -266,14 +266,31 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 
 	sectionHashes := strings.Repeat("#", sectionLevel)
 
+	// El id de cada encabezado de sección es el del HTML
+	// (renderer.DocumentSectionAnchors, issue #267, con el código literal de
+	// doclang). Se escribe con {#id} cuando no es el que se deriva del título
+	// tal como lo escribe este Markdown: un id base repetido, un título sin
+	// caracteres para un id, o un título con {{variables}}, que el Markdown
+	// deja sin sustituir y el HTML deriva sustituido. Con un título único y
+	// sin variables, el Markdown queda como estaba y el visor destino usa su
+	// propio slug.
+	sectionAnchors := renderer.DocumentSectionAnchors(doc, true)
+	assignedAnchor := func(i int, title string) (string, bool) {
+		anchor := sectionAnchors[i]
+		return anchor, anchor != renderer.DeriveAnchor(title)
+	}
+
 	// Table of contents
 	if opts.TOC {
 		fmt.Fprintf(&md, "%s Table of Contents\n\n", sectionHashes)
 		sectionNum := 1
-		for _, block := range doc.ContentBlocks {
+		for i, block := range doc.ContentBlocks {
 			title, numbered := block.SectionTitle()
 			if title != "" {
 				anchor := strings.ToLower(strings.ReplaceAll(title, " ", "-"))
+				if assigned, ok := assignedAnchor(i, title); ok {
+					anchor = assigned
+				}
 				if opts.Numbering && numbered {
 					fmt.Fprintf(&md, "- [%d. %s](#%s)\n", sectionNum, title, anchor)
 				} else {
@@ -292,10 +309,14 @@ func (m *MarkdownGenerator) Generate(doc *ast.AST, outputFile string, opts Gener
 	for i, block := range doc.ContentBlocks {
 		title, numbered := block.SectionTitle()
 		if title != "" {
+			idAttr := ""
+			if assigned, ok := assignedAnchor(i, title); ok {
+				idAttr = fmt.Sprintf(" {#%s}", assigned)
+			}
 			if opts.Numbering && numbered {
-				fmt.Fprintf(&md, "%s %d. %s\n\n", sectionHashes, sectionNum, title)
+				fmt.Fprintf(&md, "%s %d. %s%s\n\n", sectionHashes, sectionNum, title, idAttr)
 			} else {
-				fmt.Fprintf(&md, "%s %s\n\n", sectionHashes, title)
+				fmt.Fprintf(&md, "%s %s%s\n\n", sectionHashes, title, idAttr)
 			}
 			if numbered {
 				sectionNum++

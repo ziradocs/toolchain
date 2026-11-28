@@ -44,6 +44,11 @@ unless `--toc`/`--numbering` is passed.
 - Content before the first `#` (or the whole file, if it only uses
   `##`/`###`) is kept as a leading section with no heading; `##`/`###`
   keep their level there too.
+- Every heading gets a unique HTML id, in document order, sections included:
+  the first keeps the id derived from its text and repeats take `-2`, `-3`, …
+  (`# Setup` then `## Setup` give `#setup` and `#setup-2`; two `## Notes`
+  under different sections give `#notes` and `#notes-2`). A heading with no
+  Latin letters or digits gets `#seccion`. Link to a repeat with its suffix.
 - A bare `---` line is treated as an ignorable separator (harmless, but
   unnecessary — you don't need slide-style `---` separators in DocLang).
 

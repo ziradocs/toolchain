@@ -72,8 +72,13 @@ to `[a-z0-9_-]`. `id: Install_Steps` becomes `install_steps`. That normalized
 form is canonical, so `doclang fmt` emits it. An `id:` with no surviving
 characters (only emoji, say) is an error rather than an empty anchor.
 
-`doclang fmt` omits `id:` when it would be derivable from the title, and keeps
-it when it would not.
+Without `id:`, the anchor is derived from the title and is unique in the
+document: a repeated title (counting level-1 sections too) takes `-2`, `-3`, …,
+and a title with no usable characters gets `seccion`. An `id:` is never renamed,
+and no derived anchor takes it.
+
+`doclang fmt` omits `id:` when it would be derivable from the title (suffix
+included), and keeps it when it would not.
 
 ## Elements
 

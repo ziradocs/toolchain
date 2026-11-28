@@ -88,13 +88,19 @@ and linted as without the flag, so the AST, the normalization and the diagnostic
 change. The value is one line: line breaks and control characters become spaces and bidi
 controls are removed. An empty or invisible-only value, one over 500 characters, and
 `--title` with `--format markdown` (whose output writes the document's own frontmatter) are
-usage errors, also with `--lint-only`.
+usage errors, also with `--lint-only`. Known limit: heading ids are assigned when the source is
+parsed, with the source's `title:`. If a section title contains `{{title}}`, the section gets
+the flag's id, but another heading whose id matched the source's title gets a suffix: with
+`title: Notas`, `# {{title}}` and `## Notas`, `--title Otra` gives `#otra` and `#notas-2`, so a
+link to `#notas` no longer reaches `## Notas`. The ids stay unique and every TOC entry reaches
+its heading.
 
 Format caveats worth knowing up front: **DOCX** now honours `--toc`, `--numbering` and
 `--page-breaks` (previously it emitted a TOC unconditionally and ignored the other two), but
 does not yet emit cell shading. A link with a scheme (`https:`, `mailto:`) is a Word hyperlink,
 and a link to `#anchor` is an internal hyperlink to the bookmark of the heading whose HTML id is
-`anchor` (the id derived from its title, or a strict `SECTION`'s `id:`). A relative link, or an
+`anchor` (the id derived from its title, with `-2`, `-3`… when that derived id repeats, or a
+strict `SECTION`'s `id:`). A relative link, or an
 `#anchor` with no such heading, stays link-styled text. **Markdown** is partial —
 it skips PlantUML, maps and code groups, and emits charts as a placeholder fence.
 
