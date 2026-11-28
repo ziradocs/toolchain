@@ -218,3 +218,97 @@ func TestTablesRule_Apply_KeepsDashCellRows(t *testing.T) {
 		}
 	}
 }
+
+// Una fila de una tabla Markdown que empieza más arriba no abre una tabla
+// nueva. Tres filas de una sola celda ("| r0 |", dos pipes) bajo un
+// encabezado más ancho se reemplazaban por una línea vacía (menos de dos
+// columnas) o, si la racha llegaba a una fila de tres celdas, por un
+// encabezado y un separador nuevos a media tabla.
+func TestTablesRule_Apply_KeepsRowsOfAnExistingTable(t *testing.T) {
+	rule := NewTablesRule()
+	head := "| A | B | C |\n|---|---|---|\n"
+	for name, input := range map[string]string{
+		"three single-cell rows":               "# S\n\n" + head + "| r0 |\n| r1 |\n| r2 |\n",
+		"full row, then single-cell rows":      "# S\n\n" + head + "| 1 | 2 | 3 |\n| r0 |\n| r1 |\n| r2 |\n\nDespues.\n",
+		"single-cell rows, then a full row":    "# S\n\n" + head + "| r0 |\n| r1 |\n| r2 |\n| 1 | 2 | 3 |\n",
+		"twelve single-cell rows":              "# S\n\n" + head + strings.Repeat("| r |\n", 12),
+		"one-column table with three rows":     "# S\n\n| A |\n|---|\n| x |\n| y |\n| z |\n",
+		"two-cell rows without a closing pipe": "# S\n\n" + head + "| a | b\n| c | d\n| e | f\n",
+		"header without separator":             "# S\n\n| A | B |\n| c | d\n| e | f\n| g | h\n",
+		"inside a note block":                  "# S\n\n:::note\n" + head + "| r0 |\n| r1 |\n| r2 |\n:::\n",
+		"indented under a list item":           "# S\n\n- uno\n\n  " + strings.ReplaceAll(head, "\n", "\n  ") + "| r0 |\n  | r1 |\n  | r2 |\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := rule.Apply(input)
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			if got != input {
+				t.Errorf("Apply() rewrote rows of an existing table:\n%s\n---\n%s", input, got)
+			}
+		})
+	}
+}
+
+// Cuando las líneas no dan una tabla de dos columnas o más, la regla las deja
+// como están. Antes las reemplazaba por una línea vacía y su texto se perdía.
+func TestTablesRule_Apply_KeepsLinesThatMakeNoTable(t *testing.T) {
+	rule := NewTablesRule()
+	input := "# S\n\nAntes.\n\n| r0 |\n| r1 |\n| r2 |\n\nDespues.\n"
+	got, err := rule.Apply(input)
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if got != input {
+		t.Errorf("Apply() rewrote single-cell lines:\n%s\n---\n%s", input, got)
+	}
+}
+
+// La primera línea de una racha sí abre una tabla: tres filas de dos celdas
+// sin separador ni pipe de cierre se completan como antes. Una línea con un
+// solo pipe arriba no es de ninguna tabla, así que no cambia eso. Y un
+// bloque $$ tampoco es una tabla: la regla convierte ahí como en v2.61.0.
+// Que convierta dentro de una fórmula es un defecto aparte,
+// ziradocs/toolchain#557: quien lo arregle tiene que cambiar esa aserción.
+// Una línea separadora antes del encabezado, que el parser salta, tampoco
+// hace del encabezado una fila: la regla convierte en él como en v2.61.0.
+func TestTablesRule_Apply_StillBuildsTablesAtTheStartOfARun(t *testing.T) {
+	rule := NewTablesRule()
+	for _, tc := range []struct{ input, want string }{
+		{"# S\n\n| a | b\n| c | d\n| e | f\n", "# S\n\n| a | b |\n|---|---|\n| c | d |\n| e | f |\n\n"},
+		{"# S\n\n| ver-nota\n| a | b\n| c | d\n| e | f\n", "# S\n\n| ver-nota\n| a | b |\n|---|---|\n| c | d |\n| e | f |\n\n"},
+		{"# S\n\n|---|---|\n| A | B\n| a | b | c\n| d | e | f\n", "# S\n\n|---|---|\n| A | B |   |\n|---|---|---|\n| a | b | c |\n| d | e | f |\n\n"},
+		{"# S\n\n|-----|\n| A | B\n| a | b | c\n| d | e | f\n", "# S\n\n|-----|\n| A | B |   |\n|---|---|---|\n| a | b | c |\n| d | e | f |\n\n"},
+		{"# S\n\n$$\n|x-y| \\le 1\n|a| = 1\n|b| = 2\n|c| = 3\n$$\n", "# S\n\n$$\n|x-y| \\le 1\n| a | = 1 |\n|---|---|\n| b | = 2 |\n| c | = 3 |\n\n$$\n"},
+	} {
+		got, err := rule.Apply(tc.input)
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		if got != tc.want {
+			t.Errorf("Apply() =\n%q\nwant\n%q", got, tc.want)
+		}
+	}
+}
+
+// La regla arma una sola tabla por pasada, y la primera candidata termina la
+// pasada aunque la deje como está: una lista "clave: valor" o de tabuladores
+// que venga después sigue como en v2.61.0, sin convertirse.
+func TestTablesRule_Apply_FirstCandidateStillEndsThePass(t *testing.T) {
+	rule := NewTablesRule()
+	for name, input := range map[string]string{
+		"single-cell rows, then a key: value list": "# S\n\n| A | B | C |\n|---|---|---|\n| r0 |\n| r1 |\n| r2 |\n\nNombre: Ana\nEdad: 30\nCiudad: Lima\n",
+		"rows without a closing pipe, then a list": "# S\n\n| A | B | C |\n|---|---|---|\n| a | b\n| c | d\n| e | f\n\nNombre: Ana\nEdad: 30\nCiudad: Lima\n",
+		"loose single-cell rows, then tabs":        "# S\n\n| r0 |\n| r1 |\n| r2 |\n\nuno\tdos\ttres\ncuatro\tcinco\tseis\nsiete\tocho\tnueve\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := rule.Apply(input)
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			if got != input {
+				t.Errorf("Apply() rewrote the document:\n%s\n---\n%s", input, got)
+			}
+		})
+	}
+}

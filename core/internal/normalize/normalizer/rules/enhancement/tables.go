@@ -5,6 +5,7 @@ package enhancement
 
 import (
 	"strings"
+	"unicode"
 
 	"go.ziradocs.com/core/v2/internal/normalize/normalizer/base"
 )
@@ -34,6 +35,7 @@ func (r *TablesRule) Apply(content string) (string, error) {
 	// documento (30 000 líneas, 6 s solo en esto). Las líneas no cambian
 	// durante el recorrido: al reemplazar una tabla se sale del ciclo.
 	special := specialBlockLines(lines)
+	inTable := tableRowLines(lines, special)
 
 	// Buscar patrones de listas que sugieren tablas
 	for i := startLine; i < len(lines); i++ {
@@ -51,11 +53,31 @@ func (r *TablesRule) Apply(content string) (string, error) {
 		// Saltar bloques especiales (mermaid, chart, map)
 		if special[i] {
 			continue
-		} // Buscar listas estructuradas que sugieren tablas
+		}
+
+		// Buscar listas estructuradas que sugieren tablas
 		if r.looksLikeTableRows(lines, i) {
 			tableData, consumed := r.extractTableData(lines, i)
 			if len(tableData) >= 3 { // Al menos 3 filas para justificar una tabla
+				// La regla arma una sola tabla por pasada: la primera
+				// candidata del documento termina la pasada, la convierta
+				// o no. En los dos casos de abajo la deja como está, pero
+				// la pasada termina igual, para que una lista que venga
+				// después no se convierta donde antes no se convertía.
+				if inTable[i] {
+					// Una fila de una tabla que el parser ya empezó a leer
+					// arriba. Convertirla le metía un encabezado y un
+					// separador propios a media tabla, o, con filas de una
+					// sola celda ("| r0 |", dos pipes, que el chequeo de
+					// arriba no salta), la borraba.
+					break
+				}
 				markdownTable := r.convertToMarkdownTable(tableData)
+				if markdownTable == "" && hasText(tableData) {
+					// Menos de dos columnas: no hay tabla que armar.
+					// Reemplazarlas por la cadena vacía perdía su texto.
+					break
+				}
 
 				// Reemplazar las líneas originales con la tabla
 				newLines := make([]string, 0, len(lines))
@@ -74,6 +96,142 @@ func (r *TablesRule) Apply(content string) (string, error) {
 		return strings.Join(lines, "\n"), nil
 	}
 	return content, nil
+}
+
+// tableRowLines dice, para cada línea, si es una fila de una tabla Markdown
+// cuyo encabezado el parser ya leyó en una línea de arriba. Calca a
+// TableParser (core/internal/elements/table.go): la tabla empieza en una
+// línea que abre con "|" y tiene dos pipes o más (CanParse) y sigue mientras
+// cada línea abra con "|" (readMarkdownTable). Antes del encabezado el parser
+// salta una línea separadora, una línea con guiones que no es un encabezado
+// recuperado (su separador, con el mismo número de celdas, va en la línea
+// siguiente) y una línea sin celdas; la primera línea que no salta es el
+// encabezado, la primera línea de la tabla, donde la regla convierte como
+// siempre. Una línea con un solo pipe no abre tabla: es texto. Las líneas de
+// un bloque especial (cerca de código, etiqueta <<...>>) y de un bloque $$
+// (MathParser) no son de ninguna tabla.
+func tableRowLines(lines []string, special []bool) []bool {
+	out := make([]bool, len(lines))
+	started := false // el parser ya abrió una tabla en una línea de arriba
+	header := false  // y ya leyó su encabezado
+	inMath := false  // dentro de un bloque $$ de varias líneas
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if inMath {
+			inMath = !strings.HasSuffix(line, "$$")
+			started, header = false, false
+			continue
+		}
+		if special[i] || !strings.HasPrefix(line, "|") {
+			started, header = false, false
+			if !special[i] && strings.HasPrefix(line, "$$") {
+				rest := strings.TrimSpace(strings.TrimPrefix(line, "$$"))
+				inMath = rest == "" || !strings.HasSuffix(rest, "$$")
+			}
+			continue
+		}
+		if !started {
+			if strings.Count(line, "|") < 2 {
+				continue
+			}
+			started = true
+		}
+		if header {
+			out[i] = true
+			continue
+		}
+		next := ""
+		if i+1 < len(lines) {
+			next = strings.TrimSpace(lines[i+1])
+		}
+		header = !skippedBeforeHeader(line, next)
+	}
+	return out
+}
+
+// skippedBeforeHeader dice si el parser salta line cuando todavía no leyó el
+// encabezado de la tabla (readMarkdownTable): una línea separadora
+// (IsMarkdownSeparatorLine), una línea con "---", ":-:", ":--" o "--:" que
+// no sigue un separador con su mismo número de celdas (legacyMarkdownSeparator,
+// sin encabezado recuperado) o una línea sin celdas.
+func skippedBeforeHeader(line, next string) bool {
+	if isSeparatorLine(line) {
+		return true
+	}
+	cells := rowCells(line)
+	if len(cells) == 0 {
+		return true
+	}
+	if strings.Contains(line, "---") || strings.Contains(line, ":-:") ||
+		strings.Contains(line, ":--") || strings.Contains(line, "--:") {
+		recovered := strings.HasPrefix(next, "|") && isSeparatorLine(next) && len(rowCells(next)) == len(cells)
+		return !recovered
+	}
+	return false
+}
+
+// isSeparatorLine es IsMarkdownSeparatorLine (core/internal/elements/table.go).
+func isSeparatorLine(line string) bool {
+	line = strings.TrimSpace(line)
+	for _, r := range line {
+		if r != '|' && r != '-' && r != ':' && !unicode.IsSpace(r) {
+			return false
+		}
+	}
+	if strings.Contains(line, "---") {
+		return true
+	}
+	return strings.HasPrefix(line, "|") &&
+		(strings.Contains(line, ":-:") || strings.Contains(line, ":--") || strings.Contains(line, "--:"))
+}
+
+// rowCells parte una fila como SplitMarkdownTableRow y TrimMarkdownRowEdges
+// para contar sus celdas: un "|" escapado con una barra invertida, o dentro
+// de un code span, no separa celdas, y las celdas vacías de los bordes no
+// cuentan.
+func rowCells(line string) []string {
+	line = strings.TrimSpace(line)
+	var cells []string
+	var cur strings.Builder
+	inSpan, escaped := false, false
+	for _, r := range line {
+		switch {
+		case escaped:
+			escaped = false
+			cur.WriteRune(r)
+		case r == '\\':
+			escaped = true
+			cur.WriteRune(r)
+		case r == '`':
+			inSpan = !inSpan
+			cur.WriteRune(r)
+		case r == '|' && !inSpan:
+			cells = append(cells, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	cells = append(cells, cur.String())
+	if strings.HasPrefix(line, "|") && len(cells) > 0 && strings.TrimSpace(cells[0]) == "" {
+		cells = cells[1:]
+	}
+	if strings.HasSuffix(line, "|") && len(cells) > 0 && strings.TrimSpace(cells[len(cells)-1]) == "" {
+		cells = cells[:len(cells)-1]
+	}
+	return cells
+}
+
+// hasText dice si alguna celda de rows tiene texto.
+func hasText(rows [][]string) bool {
+	for _, row := range rows {
+		for _, cell := range row {
+			if cell != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isInCodeFence detecta si la línea en `index` está dentro de un code fence
