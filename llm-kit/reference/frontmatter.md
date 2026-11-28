@@ -16,6 +16,11 @@ likewise fatal.
 the file name), and TOC/numbering stay off unless requested by flag. If
 you write one, it must be well-formed (opening and closing `---`).
 
+To title a build without editing the source, use `doclang build --title
+"..."` (or the `title` argument of the MCP `export` tool) instead of adding
+a frontmatter: it sets the title wherever `title:` would, wins over a
+frontmatter `title:`, and turns nothing else on.
+
 ## Recognized fields (the only ones that do anything)
 
 ```yaml

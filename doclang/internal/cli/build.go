@@ -33,6 +33,7 @@ func NewBuildCommand(customRules []linter.Rule, rulePacks []linter.RulePack, ext
 		toc               bool
 		numbering         bool
 		pageBreaks        bool
+		title             string // --title: el título del documento, diga lo que diga la fuente
 		logLevel          string
 		renderMode        string   // Global: "browser", "offline-assets", "offline-inline" (applies to all: PlantUML, Mermaid, Charts, Maps)
 		imageFormat       string   // "png" or "webp" (for offline modes)
@@ -87,11 +88,28 @@ Examples:
   # Document with TOC and numbering
   doclang build report.doclang --toc --numbering
 
+  # Word file titled "Q3 report", whatever the source's title is
+  doclang build report.md --format docx --title "Q3 report"
+
   # Temporary copy of docs/guide.md: images and @include resolve from docs/
   doclang build /tmp/guide-unsaved.md --base-dir docs --format docx`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			inputFile := filepath.ToSlash(filepath.Clean(args[0]))
+
+			// --title pasado explícitamente tiene que decir algo (`--title ""`
+			// es un error de uso, no "sin título") y no va con Markdown. Se
+			// revisa antes que nada, también con --lint-only: un error de uso
+			// no lee la fuente, no escribe --report-out ni crea --output.
+			if cmd.Flags().Changed("title") {
+				var err error
+				if title, err = pipeline.NormalizeTitle(title); err != nil {
+					return fmt.Errorf("--title: %w", err)
+				}
+				if err := pipeline.ValidateTitle(title, format); err != nil {
+					return err
+				}
+			}
 
 			// Validate input file
 			if !fileExists(inputFile) {
@@ -198,13 +216,13 @@ Examples:
 			if err := pipeline.ValidateFailOnUnavailable(failOnUnavailable, format); err != nil {
 				return err
 			}
-
 			if err := pipeline.Generate(log, prepared, inputFile, pipeline.GenerateOptions{
 				Format:            format,
 				OutputFile:        outputFile,
 				TOC:               tocOpt,
 				Numbering:         numberingOpt,
 				PageBreaks:        pageBreaks,
+				Title:             title,
 				RenderMode:        renderMode,
 				ImageFormat:       imageFormat,
 				WebPQuality:       webpQuality,
@@ -238,6 +256,7 @@ Examples:
 	cmd.Flags().BoolVar(&toc, "toc", false, "Generate table of contents")
 	cmd.Flags().BoolVar(&numbering, "numbering", false, "Enable section numbering")
 	cmd.Flags().BoolVar(&pageBreaks, "page-breaks", false, "Insert page breaks between sections")
+	cmd.Flags().StringVar(&title, "title", "", fmt.Sprintf("Document title, whatever the source declares. It goes where a front matter title: goes: the <title> and page-view header in HTML, the title and running header in PDF, the title property and title paragraph in DOCX, and {{title}} where the format already substitutes it (not in DOCX body paragraphs), read the same way as a front matter title:. Turns nothing else on (no TOC or numbering for a file without front matter) and leaves the parsed document as is. One line: line breaks and control characters become spaces, bidi controls are removed. Empty, invisible-only or over %d characters is an error. Not valid with --format markdown", pipeline.MaxTitleRunes))
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 
 	// Rendering mode (applies globally to all interactive elements)

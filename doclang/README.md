@@ -68,6 +68,7 @@ doclang build report.doclang --lint-only          # diagnostics only, no output
 | `--toc` | `true`¹ | Generate a table of contents. |
 | `--numbering` | `true`¹ | Number sections. |
 | `--page-breaks` | `false` | Break pages between sections. |
+| `--title` | none | The document title, whatever the source declares.² |
 
 ¹ The flag's own zero value is `false`, but any document that has a frontmatter block gets
 `--toc`/`--numbering` defaulted to `true` unless the flag itself is passed explicitly (in
@@ -75,6 +76,19 @@ either direction) — pass `--toc=false`/`--numbering=false` to opt out. `number
 frontmatter can also opt out per-document; `toc:` in frontmatter is not yet parsed (see
 [Known-ignored keys](../llm-kit/reference/frontmatter.md#known-ignored-keys-do-not-rely-on-these)),
 so today the CLI flag is the only way to control TOC generation per build.
+
+² `--title` goes where a frontmatter `title:` goes, and nowhere else: in HTML the `<title>`
+and the page-view header; in PDF the document title and the running header; in DOCX the
+title property and the title paragraph (not repeated when the first `#` says the same); and
+`{{title}}` wherever the format already substitutes it (DOCX does not in body paragraphs,
+with or without the flag). Through `{{title}}` the value is read as a frontmatter `title:`
+is: in the body as Markdown. It wins over a frontmatter `title:`. On a file without
+frontmatter it turns on no TOC, numbering or interactive viewer, and the document is parsed
+and linted as without the flag, so the AST, the normalization and the diagnostic lines don't
+change. The value is one line: line breaks and control characters become spaces and bidi
+controls are removed. An empty or invisible-only value, one over 500 characters, and
+`--title` with `--format markdown` (whose output writes the document's own frontmatter) are
+usage errors, also with `--lint-only`.
 
 Format caveats worth knowing up front: **DOCX** now honours `--toc`, `--numbering` and
 `--page-breaks` (previously it emitted a TOC unconditionally and ignored the other two), but
@@ -416,6 +430,7 @@ The fifth, `export`, writes DOCX, PDF or HTML for a file on disk with the same p
 | `output` | optional; defaults to the input path with the format's extension. Its directory must exist and its extension must match `format` |
 | `overwrite` | optional, default `false`: an existing file is never replaced unless it is `true` |
 | `toc` | optional; without it the front matter decides, as in `build` |
+| `title` | optional, like `build --title`: the document title, whatever the source declares, on the same surfaces. Left out, the source's title stays; an empty or invisible-only value, or one over 500 characters, is an error |
 | `baseDir` | optional, like `build --base-dir`: the directory relative images and `@include` paths resolve from, inside the root. Defaults to the input file's directory. HTML export uses `browser` mode: it reads no image and keeps each relative `src` as written, except images inside an `@include`d file, which are rewritten relative to `baseDir` |
 | `includeRoot` | optional, like `build --include-root`. Defaults to `baseDir` |
 | `allowRemoteImages` | optional, like `build --allow-remote-images`; default `false`, so a PDF export leaves the document's `http(s)` images as a marker with a warning instead of fetching them. The client sets it, so it only takes effect when the server was started with `doclang mcp --allow-remote-images`; otherwise it is ignored with a warning in the diagnostics |
