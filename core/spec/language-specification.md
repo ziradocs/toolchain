@@ -409,6 +409,74 @@ cells than the header`. A `lint_policy:` that raised, lowered or turned off `TAB
 `TABLE009` in a typed grid column, no longer reaches a short row: name
 `TABLE010` (`severity: error` restores the old failure).
 
+Up to v2.61.0 the normalizer, where it runs in full (a source in any dialect
+but strict that the detector scores, as one with `Action Items` in it, a
+document without frontmatter that starts with `# `, or a presentation in
+`auto` mode whose body does), could take three or more rows of a table like
+`| r0 |` (one cell) or `| a | b` (no closing pipe) for the start of a new
+table and rewrite them, with the lines below them that it also read as rows,
+as a table of its own, with a header and a separator. When the rows had one
+cell it replaced them with an empty line instead: they were lost, and a table
+left with no rows got a `TABLE002` warning. Otherwise the separator it added
+stayed in the table as a row of dashes or, when its number of cells differed
+from the header, was dropped with a `TABLE008` warning on the wrong line,
+and the rows below it got their `TABLE010` on the wrong line too. It now
+leaves the rows of a table as written: they are short rows of that table,
+with `TABLE010` on their line. A row of a table is a line that starts with
+`|` below the header of a table that the parser already reads; the header is
+the first line of the table that the parser does not skip (a separator row,
+a line of dashes or a line with no cells before it are skipped), and there
+the normalizer still converts as before. A run of one-cell rows with text
+under no table, which it also replaced with an empty line, is left as
+written too; one-cell rows with no text (`||`) are still dropped. As before,
+it builds at most one table each time it runs, and the first candidate ends
+the run even when it is left as written. Strict never runs the normalizer.
+
+**This is a behavior change.** A row with more cells than the header that
+the normalizer used to move out of its table is now read in its table, and
+it is `TABLE003`, an error, so a document that built may now fail. It happens
+in three shapes:
+
+- Ten or more one-cell rows with no blank line before a wider row. The
+  normalizer dropped the first ten (it reads at most ten), and the wider row
+  started a table of its own. Now they are all one table, which the parser
+  reads from the first row, and the wider row is `TABLE003`:
+
+  ```
+  | r |        (ten of these)
+  | A | B |    TABLE003: 2 cells where the header has 1
+  | 1 | 2 |
+  ```
+
+- A `TABLE` block with rows of one cell (or with no closing pipe) below the
+  header, then one wider than the header. The normalizer gave them a header
+  and a separator of their own, which ended the `TABLE` and made them a
+  separate table as wide as the widest row; the `TABLE` was usually left with
+  no rows (`TABLE002`):
+
+  ```
+  TABLE
+    | H0 |
+    |---|
+    | a |
+    | b |
+    | v | v |  TABLE003: 2 cells where the header has 1
+  ```
+
+- Rarely, a first line with dashes in a cell, followed by a separator row
+  with as many cells, when the rows below do not fit it. The parser reads the
+  table again without taking that first line as the header (it is skipped
+  with `TABLE008`), so the header is the line after the separator, and the
+  normalizer no longer converts the rows below it:
+
+  ```
+  | x | --- |      TABLE008
+  |---|---|
+  | c | d
+  | e | f | g    TABLE003: 3 cells where the header has 2
+  | h | i
+  ```
+
 **This is a behavior change.** Flex and a `:::` block used to skip every line
 with `---`, `:--`, `--:` or `:-:` in it as a separator, so the cells of
 `| 2019 | --- |` did not reach the AST (with a `TABLE008` warning). Strict read
